@@ -9,11 +9,21 @@ class Simulated(Wallet):
         self.owned = {}
 
     def invest_fixed(self, ticker: str, amount: int, at: float):
+        # if self.balance < 1000:
+        #     print("\n\n")
+        #     print(amount)
+        #     print(at)
+        #     print(amount * at)
+        #     print(self.balance)
+
         investment_value = amount * at
         if investment_value > self.balance:
+            # if self.balance < 1000:
+            #     print("broke nigga leaving")
             return
-            raise ValueError("Broke nigga detected")
 
+        # if self.balance < 1000:
+        #     print("finna spend this money")
         self.balance -= investment_value
         owned_stocks = self.owned.get(ticker, 0)
         self.owned[ticker] = owned_stocks + amount
@@ -22,7 +32,12 @@ class Simulated(Wallet):
         owned_stocks = self.owned.get(ticker, 0)
         if owned_stocks < amount:
             return
-            raise ValueError(f"Tryna sell too much")
 
+        if amount < 0 or at < 0:
+            print("\n\nselling and losing money?")
+            print(amount)
+            print(at)
+            print(amount * at)
+            print(self.balance)
         self.balance += amount * at
         self.owned[ticker] = owned_stocks - amount
