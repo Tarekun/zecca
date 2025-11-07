@@ -59,13 +59,13 @@ def save_df(
     df = df.copy()
 
     df["year"] = df["date"].dt.year
-    df["month"] = df["date"].dt.month
-    df["day"] = df["date"].dt.day
+    # df["month"] = df["date"].dt.month
+    # df["day"] = df["date"].dt.day
 
     # --- write each partition separately ---
     # TODO reduce partitioning tbh, this partition will only have 24 rows per ticker so what ~24k?
-    for (y, m, d), part_df in df.groupby(["year", "month", "day"]):
-        part_path = root / f"year={y}/month={m}/day={d}"
+    for (y,), part_df in df.groupby(["year"]):
+        part_path = root / f"year={y}"
         part_path.mkdir(parents=True, exist_ok=True)
 
         existing_files = list(part_path.glob("*.parquet"))
@@ -83,7 +83,7 @@ def save_df(
             f.unlink()
 
         # write merged partition
-        file_path = part_path / f"part-{y}{m:02d}{d:02d}.parquet"
+        file_path = part_path / f"part-{name}-{y}.parquet"
         table = pa.Table.from_pandas(combined)
         pq.write_table(table, file_path, compression="snappy")
 
@@ -126,3 +126,6 @@ def get_latest_partition_date(base_dir: str, name: str) -> datetime:
     if latest is None:
         raise Exception("i dont know what to say")
     return latest
+
+
+tickers_full_refresh(["msft"])
