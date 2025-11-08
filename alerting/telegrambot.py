@@ -21,7 +21,3 @@ def send_message_to_group(text: str):
     except Exception as e:
         print(f"Error could NOT send message: {e}")
 
-# Esempio di utilizzo
-if __name__ == "__main__":
-    send_message_to_group("⚠⚠⚠ WARING ⚠⚠⚠")
-
