@@ -1,11 +1,35 @@
 from datetime import datetime, timedelta, timezone
+import math
 import pandas as pd
 from pandas import DataFrame
 from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import re
+from time import sleep
 import yfinance as yf
+from db.queries import read_tickers
+
+
+def ingest_tickers(base_dir: str = "./data_cache", incremental: bool = True):
+    tickers = read_tickers()
+    ticker_names = tickers["ticker"].dropna().astype(str).unique().tolist()
+    total = len(ticker_names)
+    batch_size = 50
+    num_batches = math.ceil(total / batch_size)
+
+    for i in range(0, total, batch_size):
+        try:
+            batch = ticker_names[i : i + batch_size]
+            print(
+                f"Processing batch {i // batch_size + 1}/{num_batches}: {len(batch)} tickers"
+            )
+            if incremental:
+                tickers_incremental(batch, base_dir)
+            else:
+                tickers_full_refresh(batch, base_dir)
+        except Exception as e:
+            print(f"⚠️  Batch {i // batch_size + 1} failed: {e}")
 
 
 def tickers_full_refresh(ticker_names: list[str], base_dir: str = "./data_cache"):
@@ -13,6 +37,8 @@ def tickers_full_refresh(ticker_names: list[str], base_dir: str = "./data_cache"
     if df is not None:
         df = flatten_yf(df)
         save_df(df, "ticker_daily", base_dir, ["date", "ticker"])
+
+    sleep(30)
 
     df = yf.download(ticker_names, interval="1h", period="2y")
     if df is not None:
@@ -44,6 +70,7 @@ def tickers_incremental(ticker_names: str | list[str], base_dir: str = "./data_c
             save_df(df, table_name, base_dir, ["date", "ticker"])
 
     pull_interval("1d")
+    sleep(30)
     pull_interval("1h")
 
 
@@ -59,13 +86,12 @@ def save_df(
     df = df.copy()
 
     df["year"] = df["date"].dt.year
-    # df["month"] = df["date"].dt.month
+    df["month"] = df["date"].dt.month
     # df["day"] = df["date"].dt.day
 
     # --- write each partition separately ---
-    # TODO reduce partitioning tbh, this partition will only have 24 rows per ticker so what ~24k?
-    for (y,), part_df in df.groupby(["year"]):
-        part_path = root / f"year={y}"
+    for (y, m), part_df in df.groupby(["year", "month"]):
+        part_path = root / f"year={y}/month={m}"
         part_path.mkdir(parents=True, exist_ok=True)
 
         existing_files = list(part_path.glob("*.parquet"))
@@ -83,7 +109,7 @@ def save_df(
             f.unlink()
 
         # write merged partition
-        file_path = part_path / f"part-{name}-{y}.parquet"
+        file_path = part_path / f"part-{name}-{y}{m}.parquet"
         table = pa.Table.from_pandas(combined)
         pq.write_table(table, file_path, compression="snappy")
 
@@ -126,6 +152,3 @@ def get_latest_partition_date(base_dir: str, name: str) -> datetime:
     if latest is None:
         raise Exception("i dont know what to say")
     return latest
-
-
-tickers_full_refresh(["msft"])
