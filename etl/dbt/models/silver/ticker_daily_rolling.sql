@@ -23,12 +23,27 @@ WITH src AS (
     SELECT
         *,
         -- daily log return for volatility
-        LN(close / LAG(close, 1) OVER (PARTITION BY ticker ORDER BY date)) AS log_return,
+        {{safe_return(
+            'close',
+            'LAG(close, 1) OVER (PARTITION BY ticker ORDER BY date)'
+        )}} AS log_return,
         -- fixed-horizon total cumulative returns
-        LN(close / LAG(close, 7) OVER (PARTITION BY ticker ORDER BY date)) AS return_1w,
-        LN(close / LAG(close, 30) OVER (PARTITION BY ticker ORDER BY date)) AS return_1m,
-        LN(close / LAG(close, 365) OVER (PARTITION BY ticker ORDER BY date)) AS return_1y,
-        LN(close / LAG(close, 730) OVER (PARTITION BY ticker ORDER BY date)) AS return_2y,
+        {{safe_return(
+            'close',
+            'LAG(close, 7) OVER (PARTITION BY ticker ORDER BY date)'
+        )}} AS return_1w,
+        {{safe_return(
+            'close',
+            'LAG(close, 30) OVER (PARTITION BY ticker ORDER BY date)'
+        )}} AS return_1m,
+        {{safe_return(
+            'close',
+            'LAG(close, 365) OVER (PARTITION BY ticker ORDER BY date)'
+        )}} AS return_1y,
+        {{safe_return(
+            'close',
+            'LAG(close, 730) OVER (PARTITION BY ticker ORDER BY date)'
+        )}} AS return_2y,
     FROM src
 )
 , with_rolling AS (
