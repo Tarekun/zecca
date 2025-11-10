@@ -9,4 +9,4 @@ zecca_dbt:
         - parquet
         - httpfs
       settings:
-        threads: 4
+        threads: 8
