@@ -1,12 +1,7 @@
 {{ config(
     materialized='table',
     format='parquet',
-    post_hook="""
-        COPY (
-        SELECT * FROM {{ this }}
-        ) TO '../dataplatform/transformed/ticker_daily_rolling/'
-        (FORMAT PARQUET, PARTITION_BY (year, month), OVERWRITE_OR_IGNORE TRUE);
-    """
+    post_hook="{{ materialized_partitioned_parquet(['year','month']) }}"
 ) }}
 
 
@@ -22,14 +17,24 @@ WITH src AS (
         high,
         low,
         volume,
-    FROM read_parquet(
-        '../dataplatform/raw/ticker_daily/year=*/month=*/*.parquet',
-        hive_partitioning = true
-    )
+    FROM {{source_yfinance('ticker_daily')}}
+)
+, with_returns AS (
+    SELECT
+        *,
+        -- daily log return for volatility
+        LN(close / LAG(close, 1) OVER (PARTITION BY ticker ORDER BY date)) AS log_return,
+        -- fixed-horizon total cumulative returns
+        LN(close / LAG(close, 7) OVER (PARTITION BY ticker ORDER BY date)) AS return_1w,
+        LN(close / LAG(close, 30) OVER (PARTITION BY ticker ORDER BY date)) AS return_1m,
+        LN(close / LAG(close, 365) OVER (PARTITION BY ticker ORDER BY date)) AS return_1y,
+        LN(close / LAG(close, 730) OVER (PARTITION BY ticker ORDER BY date)) AS return_2y,
+    FROM src
 )
 , with_rolling AS (
     SELECT 
         *,
+        -- rolling opening prices
         AVG(open) OVER (
             PARTITION BY ticker 
             ORDER BY date 
@@ -54,8 +59,35 @@ WITH src AS (
             PARTITION BY ticker 
             ORDER BY date 
             ROWS BETWEEN 199 PRECEDING AND CURRENT ROW
-        ) AS open_rolling_200d
-    FROM src
+        ) AS open_rolling_200d,
+
+        -- volatility: rolling std dev of 1-day log returns
+        STDDEV_SAMP(log_return) OVER (
+            PARTITION BY ticker 
+            ORDER BY date 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS volatility_1w,
+        STDDEV_SAMP(log_return) OVER (
+            PARTITION BY ticker 
+            ORDER BY date 
+            ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
+        ) AS volatility_2w,
+        STDDEV_SAMP(log_return) OVER (
+            PARTITION BY ticker 
+            ORDER BY date 
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+        ) AS volatility_1m,
+        STDDEV_SAMP(log_return) OVER (
+            PARTITION BY ticker 
+            ORDER BY date 
+            ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
+        ) AS volatility_100d,
+        STDDEV_SAMP(log_return) OVER (
+            PARTITION BY ticker 
+            ORDER BY date 
+            ROWS BETWEEN 199 PRECEDING AND CURRENT ROW
+        ) AS volatility_200d
+    FROM with_returns
 )
 
 SELECT * FROM with_rolling

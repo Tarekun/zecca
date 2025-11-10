@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: raw_data
+    database: "" # leave empty for DuckDB/file-based
+    schema: "" # not needed for file reads
+    tables:
+      - name: ticker_daily
+        description: "Raw daily ticker data pulled from Yahoo Finance stored as partitioned Parquet"
+        meta:
+          parquet_path: "../dataplatform/raw/ticker_daily/year=*/month=*/*.parquet"
+          hive_partitioning: true

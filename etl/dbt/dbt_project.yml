@@ -13,6 +13,10 @@ clean-targets:
 
 models:
   zecca_dbt:
-    # +pre-hook: "INSTALL ducklake; LOAD ducklake; ATTACH 'ducklake:metadata.ducklake' AS my_lake (DATA_PATH '/home/danieletarek.iaisy/codice/personal/zecca/etl/dataplatform/transformed/'); USE my_lake;"
     silver:
       +materialized: table
+
+vars:
+  db_base: "../dataplatform"
+  yfinance_data: "{{var('db_base')}}/raw"
+  derived_data: "{{var('db_base')}}/transformed"
