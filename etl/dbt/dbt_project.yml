@@ -1,0 +1,18 @@
+name: "zecca_dbt"
+version: "1.0.0"
+config-version: 2
+
+profile: "zecca_dbt"
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  zecca_dbt:
+    # +pre-hook: "INSTALL ducklake; LOAD ducklake; ATTACH 'ducklake:metadata.ducklake' AS my_lake (DATA_PATH '/home/danieletarek.iaisy/codice/personal/zecca/etl/dataplatform/transformed/'); USE my_lake;"
+    silver:
+      +materialized: table

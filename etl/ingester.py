@@ -9,9 +9,13 @@ import re
 from time import sleep
 import yfinance as yf
 from db.queries import read_tickers
+from db.globals import DEFAULT_DB_DIR
 
 
-def ingest_tickers(base_dir: str = "./data_cache", incremental: bool = True):
+INGESTION_DIR = f"{DEFAULT_DB_DIR}/raw"
+
+
+def ingest_tickers(base_dir: str = INGESTION_DIR, incremental: bool = True):
     tickers = read_tickers()
     ticker_names = tickers["ticker"].dropna().astype(str).unique().tolist()
     total = len(ticker_names)
@@ -32,7 +36,7 @@ def ingest_tickers(base_dir: str = "./data_cache", incremental: bool = True):
             print(f"⚠️  Batch {i // batch_size + 1} failed: {e}")
 
 
-def tickers_full_refresh(ticker_names: list[str], base_dir: str = "./data_cache"):
+def tickers_full_refresh(ticker_names: list[str], base_dir: str):
     df = yf.download(ticker_names, interval="1d", start="1970-01-01")
     if df is not None:
         df = flatten_yf(df)
@@ -46,7 +50,7 @@ def tickers_full_refresh(ticker_names: list[str], base_dir: str = "./data_cache"
         save_df(df, "ticker_hourly", base_dir, ["date", "ticker"])
 
 
-def tickers_incremental(ticker_names: str | list[str], base_dir: str = "./data_cache"):
+def tickers_incremental(ticker_names: str | list[str], base_dir: str):
     # i be DRY af frfr
     def pull_interval(interval: str):
         table_name = "ticker_hourly" if interval == "1h" else "ticker_daily"
@@ -81,6 +85,7 @@ def save_df(
     If `key_columns` is passed insertion is performed with merging strategy,
     performing deduplication over the specified columns"""
 
+    Path(base_dir).mkdir(exist_ok=True)
     root = Path(f"{base_dir}/{name}")
     root.mkdir(exist_ok=True)
     df = df.copy()
