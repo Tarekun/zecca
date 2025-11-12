@@ -40,7 +40,7 @@ def select_ticker(
     return run_custom_query(query)
 
 
-def read_tickers(base_dir: str = DEFAULT_DB_DIR) -> pd.DataFrame:
+def read_tickers(base_dir: str) -> pd.DataFrame:
     file_path = f"{base_dir}/company_tickers.parquet"
     return run_custom_query(
         f"""

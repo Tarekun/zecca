@@ -1,1 +1,1 @@
-DEFAULT_DB_DIR = "./etl/dataplatform"
+DEFAULT_DB_DIR = "./dataplatform"

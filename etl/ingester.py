@@ -8,18 +8,14 @@ import pyarrow.parquet as pq
 import re
 from time import sleep
 import yfinance as yf
-from db.queries import read_tickers
-from db.globals import DEFAULT_DB_DIR
+from db.queries import read_tickers, run_custom_query
 
 
-INGESTION_DIR = f"{DEFAULT_DB_DIR}/raw"
-
-
-def ingest_tickers(base_dir: str = INGESTION_DIR, incremental: bool = True):
-    tickers = read_tickers()
+def ingest_tickers(base_dir: str, incremental: bool = True):
+    tickers = read_tickers(base_dir)
     ticker_names = tickers["ticker"].dropna().astype(str).unique().tolist()
     total = len(ticker_names)
-    batch_size = 50
+    batch_size = 100
     num_batches = math.ceil(total / batch_size)
 
     for i in range(0, total, batch_size):
@@ -42,7 +38,7 @@ def tickers_full_refresh(ticker_names: list[str], base_dir: str):
         df = flatten_yf(df)
         save_df(df, "ticker_daily", base_dir, ["date", "ticker"])
 
-    sleep(30)
+    sleep(15)
 
     df = yf.download(ticker_names, interval="1h", period="2y")
     if df is not None:
@@ -54,13 +50,16 @@ def tickers_incremental(ticker_names: str | list[str], base_dir: str):
     # i be DRY af frfr
     def pull_interval(interval: str):
         table_name = "ticker_hourly" if interval == "1h" else "ticker_daily"
-        start = get_latest_partition_date(base_dir, table_name) + timedelta(days=1)
+        # tbh i think reprocessing the last day every day is best
+        start = get_latest_partition_date(base_dir, table_name)
+        # start = get_latest_partition_date(base_dir, table_name) + timedelta(days=1)
+        print(f"Incremental ingestion start date: {start}")
         df = None
 
         if start is None:
             print(f"No existing {table_name} data, run a full refresh first.")
             return
-        if start.date() >= datetime.now(timezone.utc).date():
+        if start.date() >= datetime.now().date():
             print(
                 f"{table_name}: data is already up to date (won't pull {start.date()})"
             )
@@ -74,7 +73,7 @@ def tickers_incremental(ticker_names: str | list[str], base_dir: str):
             save_df(df, table_name, base_dir, ["date", "ticker"])
 
     pull_interval("1d")
-    sleep(30)
+    sleep(15)
     pull_interval("1h")
 
 
@@ -141,19 +140,28 @@ def flatten_yf(df: DataFrame) -> DataFrame:
 
 
 def get_latest_partition_date(base_dir: str, name: str) -> datetime:
-    """Find the latest year/month/day= partition in a dataset directory"""
-    path = Path(f"{base_dir}/{name}")
+    """Find the latest year/month partition in a dataset directory"""
 
-    pattern = re.compile(r"year=(\d{4}).*month=(\d{1,2}).*day=(\d{1,2})")
-    latest = None
-    for p in path.rglob("day=*"):
-        m = pattern.search(str(p))
-        if m:
-            y, mo, d = map(int, m.groups())
-            dt = datetime(y, mo, d)
-            if latest is None or dt > latest:
-                latest = dt
+    path = Path(base_dir) / name
+    pattern = re.compile(r"year=(\d{4})[/\\]month=(\d{1,2})[/\\]?$")
+    latest_year_month = None
 
-    if latest is None:
-        raise Exception("i dont know what to say")
-    return latest
+    # walk all subdirectories and look for year=YYYY/month=MM pattern
+    for p in path.rglob("*"):
+        if p.is_dir():
+            match = pattern.search(str(p))
+            if match:
+                y, m = int(match.group(1)), int(match.group(2))
+                if latest_year_month is None or (y, m) > latest_year_month:
+                    latest_year_month = (y, m)
+    if latest_year_month is None:
+        raise FileNotFoundError(f"No year/month partitions found under {path}")
+
+    year, month = latest_year_month
+    res = run_custom_query(
+        f"""SELECT MAX(date)
+        FROM read_parquet('{path}/**/*.parquet', hive_partitioning=true)
+        WHERE year={year}
+        AND month={month}"""
+    )
+    return res["max(date)"][0].to_pydatetime()

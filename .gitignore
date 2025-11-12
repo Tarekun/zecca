@@ -1,8 +1,10 @@
 .venv
 /**/__pycache__
+/**/*.env
 tmp
 
-etl/dataplatform
+dataplatform
+
 etl/dbt/.user.yml
 etl/dbt/dbt_packages
 etl/dbt/logs

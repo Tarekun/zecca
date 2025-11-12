@@ -20,4 +20,3 @@ def send_message_to_group(text: str):
         print("Message sended")
     except Exception as e:
         print(f"Error could NOT send message: {e}")
-
