@@ -1,0 +1,22 @@
+name: "zecca_dbt"
+version: "1.0.0"
+config-version: 2
+
+profile: "zecca_dbt"
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  zecca_dbt:
+    silver:
+      +materialized: table
+
+vars:
+  db_base: "../dataplatform"
+  yfinance_data: "{{var('db_base')}}/raw"
+  derived_data: "{{var('db_base')}}/transformed"

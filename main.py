@@ -1,33 +1,26 @@
-import yfinance as yf
-from cache import *
+from pathlib import Path
+import yaml
+from etl.etl import etl
 
-microsoft = yf.download("MSFT", period="10y", interval="1d")
-if microsoft is not None:
-    print(microsoft.head)
-    save_df(microsoft, "msft")
-    load_df("msft")
-    print(microsoft.head)
 
-# dat = yf.Ticker("MSFT")
+def load_config(config_path: str = "config.yml") -> dict:
+    """Load configuration from YAML file."""
+    config_file = Path(config_path)
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
 
-# # get historical market data
-# print(dat.history(period="1mo"), end="\n\n\n")
+    required_keys = []
+    for key in required_keys:
+        if key not in config:
+            raise KeyError(f"Missing required config key: '{key}' in {config_file}")
 
-# # options
-# print(dat.option_chain(dat.options[0]).calls, end="\n\n\n")
+    # Validate base_directory is a string and create if it doesn't exist
+    # base_dir = Path(config["base_directory"])
+    # base_dir.mkdir(parents=True, exist_ok=True)
+    # config["base_directory"] = str(base_dir.absolute())
 
-# # get financials
-# print(dat.balance_sheet, end="\n\n\n")
-# print(dat.quarterly_income_stmt, end="\n\n\n")
+    return config
 
-# # # dates
-# print(dat.calendar, end="\n\n\n")
 
-# # # general info
-# print(dat.info, end="\n\n\n")
-
-# # # analysis
-# print(dat.analyst_price_targets, end="\n\n\n")
-
-# # # websocket
-# # # dat.live()
+config = load_config()
+etl(config)

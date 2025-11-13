@@ -1,0 +1,2 @@
+ingestion_dir: dataplatform/raw
+incremental: True

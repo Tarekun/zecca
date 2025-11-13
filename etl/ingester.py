@@ -8,14 +8,14 @@ import pyarrow.parquet as pq
 import re
 from time import sleep
 import yfinance as yf
-from db.queries import read_tickers
+from db.queries import read_tickers, run_custom_query
 
 
-def ingest_tickers(base_dir: str = "./data_cache", incremental: bool = True):
-    tickers = read_tickers()
+def ingest_tickers(base_dir: str, incremental: bool = True):
+    tickers = read_tickers(base_dir)
     ticker_names = tickers["ticker"].dropna().astype(str).unique().tolist()
     total = len(ticker_names)
-    batch_size = 50
+    batch_size = 100 if incremental else 50
     num_batches = math.ceil(total / batch_size)
 
     for i in range(0, total, batch_size):
@@ -32,7 +32,7 @@ def ingest_tickers(base_dir: str = "./data_cache", incremental: bool = True):
             print(f"⚠️  Batch {i // batch_size + 1} failed: {e}")
 
 
-def tickers_full_refresh(ticker_names: list[str], base_dir: str = "./data_cache"):
+def tickers_full_refresh(ticker_names: list[str], base_dir: str):
     df = yf.download(ticker_names, interval="1d", start="1970-01-01")
     if df is not None:
         df = flatten_yf(df)
@@ -46,17 +46,20 @@ def tickers_full_refresh(ticker_names: list[str], base_dir: str = "./data_cache"
         save_df(df, "ticker_hourly", base_dir, ["date", "ticker"])
 
 
-def tickers_incremental(ticker_names: str | list[str], base_dir: str = "./data_cache"):
+def tickers_incremental(ticker_names: str | list[str], base_dir: str):
     # i be DRY af frfr
     def pull_interval(interval: str):
         table_name = "ticker_hourly" if interval == "1h" else "ticker_daily"
-        start = get_latest_partition_date(base_dir, table_name) + timedelta(days=1)
+        # tbh i think reprocessing the last day every day is best
+        start = get_latest_partition_date(base_dir, table_name)
+        # start = get_latest_partition_date(base_dir, table_name) + timedelta(days=1)
+        print(f"Incremental ingestion start date: {start}")
         df = None
 
         if start is None:
             print(f"No existing {table_name} data, run a full refresh first.")
             return
-        if start.date() >= datetime.now(timezone.utc).date():
+        if start.date() >= datetime.now().date():
             print(
                 f"{table_name}: data is already up to date (won't pull {start.date()})"
             )
@@ -81,6 +84,7 @@ def save_df(
     If `key_columns` is passed insertion is performed with merging strategy,
     performing deduplication over the specified columns"""
 
+    Path(base_dir).mkdir(exist_ok=True)
     root = Path(f"{base_dir}/{name}")
     root.mkdir(exist_ok=True)
     df = df.copy()
@@ -136,19 +140,28 @@ def flatten_yf(df: DataFrame) -> DataFrame:
 
 
 def get_latest_partition_date(base_dir: str, name: str) -> datetime:
-    """Find the latest year/month/day= partition in a dataset directory"""
-    path = Path(f"{base_dir}/{name}")
+    """Find the latest year/month partition in a dataset directory"""
 
-    pattern = re.compile(r"year=(\d{4}).*month=(\d{1,2}).*day=(\d{1,2})")
-    latest = None
-    for p in path.rglob("day=*"):
-        m = pattern.search(str(p))
-        if m:
-            y, mo, d = map(int, m.groups())
-            dt = datetime(y, mo, d)
-            if latest is None or dt > latest:
-                latest = dt
+    path = Path(base_dir) / name
+    pattern = re.compile(r"year=(\d{4})[/\\]month=(\d{1,2})[/\\]?$")
+    latest_year_month = None
 
-    if latest is None:
-        raise Exception("i dont know what to say")
-    return latest
+    # walk all subdirectories and look for year=YYYY/month=MM pattern
+    for p in path.rglob("*"):
+        if p.is_dir():
+            match = pattern.search(str(p))
+            if match:
+                y, m = int(match.group(1)), int(match.group(2))
+                if latest_year_month is None or (y, m) > latest_year_month:
+                    latest_year_month = (y, m)
+    if latest_year_month is None:
+        raise FileNotFoundError(f"No year/month partitions found under {path}")
+
+    year, month = latest_year_month
+    res = run_custom_query(
+        f"""SELECT MAX(date)
+        FROM read_parquet('{path}/**/*.parquet', hive_partitioning=true)
+        WHERE year={year}
+        AND month={month}"""
+    )
+    return res["max(date)"][0].to_pydatetime()

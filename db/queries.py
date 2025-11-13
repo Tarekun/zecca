@@ -2,11 +2,12 @@ import duckdb
 import pandas as pd
 from datetime import datetime
 from typing import Optional
+from db.globals import DEFAULT_DB_DIR
 
 
 def select_ticker(
     interval: str,
-    base_dir: str = "./data_cache",
+    base_dir: str = DEFAULT_DB_DIR,
     year: int | list[int] | None = None,
     month: int | list[int] | None = None,
     day: int | list[int] | None = None,
@@ -39,7 +40,7 @@ def select_ticker(
     return run_custom_query(query)
 
 
-def read_tickers(base_dir: str = "./data_cache") -> pd.DataFrame:
+def read_tickers(base_dir: str) -> pd.DataFrame:
     file_path = f"{base_dir}/company_tickers.parquet"
     return run_custom_query(
         f"""

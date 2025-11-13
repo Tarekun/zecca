@@ -1,0 +1,12 @@
+zecca_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../dataplatform/storage.duckdb"
+      external_root: ../dataplatform/transformed
+      extensions:
+        - parquet
+        - httpfs
+      settings:
+        threads: 8
