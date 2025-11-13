@@ -15,7 +15,7 @@ def ingest_tickers(base_dir: str, incremental: bool = True):
     tickers = read_tickers(base_dir)
     ticker_names = tickers["ticker"].dropna().astype(str).unique().tolist()
     total = len(ticker_names)
-    batch_size = 100
+    batch_size = 100 if incremental else 50
     num_batches = math.ceil(total / batch_size)
 
     for i in range(0, total, batch_size):
@@ -38,7 +38,7 @@ def tickers_full_refresh(ticker_names: list[str], base_dir: str):
         df = flatten_yf(df)
         save_df(df, "ticker_daily", base_dir, ["date", "ticker"])
 
-    sleep(15)
+    sleep(30)
 
     df = yf.download(ticker_names, interval="1h", period="2y")
     if df is not None:
@@ -73,7 +73,7 @@ def tickers_incremental(ticker_names: str | list[str], base_dir: str):
             save_df(df, table_name, base_dir, ["date", "ticker"])
 
     pull_interval("1d")
-    sleep(15)
+    sleep(30)
     pull_interval("1h")
 
 
