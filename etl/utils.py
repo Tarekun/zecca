@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 import pandas as pd
 from pandas import DataFrame
@@ -11,73 +11,75 @@ import yfinance as yf
 from db.queries import read_tickers, run_custom_query
 
 
-def ingest_tickers(base_dir: str, incremental: bool = True):
+def yfincance_ticker_ingestion(interval: str, base_dir: str, incremental: bool = True):
     tickers = read_tickers(base_dir)
     ticker_names = tickers["ticker"].dropna().astype(str).unique().tolist()
     total = len(ticker_names)
     batch_size = 100 if incremental else 50
     num_batches = math.ceil(total / batch_size)
+    table_name = "ticker_daily" if interval == "1d" else "ticker_hourly"
 
+    # request parameters defaults
+    start = "1970-01-01"
+    period = None
+    if incremental:
+        # tbh i think reprocessing the last day every day is best
+        start_date: datetime = _get_latest_partition_date(base_dir, table_name)
+        # start_date = get_latest_partition_date(base_dir, table_name) + timedelta(days=1)
+        if start_date is None:
+            print(f"No existing {table_name} data, run a full refresh first.")
+            return
+        # TODO review timezone handling
+        if start_date.replace(tzinfo=timezone.utc) >= datetime.now(timezone.utc):
+            print(f"{table_name}: data is already up to date (won't pull {start_date})")
+            return
+        start = start_date.strftime("%Y-%m-%d")
+        print(f"Incremental ingestion start date: {start}")
+    if not incremental and interval == "1h":
+        period = "2y"
+        start = None
+
+    full_data = pd.DataFrame()
     for i in range(0, total, batch_size):
         try:
             batch = ticker_names[i : i + batch_size]
             print(
                 f"Processing batch {i // batch_size + 1}/{num_batches}: {len(batch)} tickers"
             )
-            if incremental:
-                tickers_incremental(batch, base_dir)
-            else:
-                tickers_full_refresh(batch, base_dir)
+
+            df = yf.download(batch, interval=interval, period=period, start=start)
+            if df is not None and not df.empty:
+                df = _flatten_yf(df)
+                full_data = pd.concat([full_data, df], ignore_index=True)
+            sleep(30)
         except Exception as e:
             print(f"⚠️  Batch {i // batch_size + 1} failed: {e}")
 
-
-def tickers_full_refresh(ticker_names: list[str], base_dir: str):
-    df = yf.download(ticker_names, interval="1d", start="1970-01-01")
-    if df is not None:
-        df = flatten_yf(df)
-        save_df(df, "ticker_daily", base_dir, ["date", "ticker"])
-
-    sleep(30)
-
-    df = yf.download(ticker_names, interval="1h", period="2y")
-    if df is not None:
-        df = flatten_yf(df)
-        save_df(df, "ticker_hourly", base_dir, ["date", "ticker"])
+    _save_df(full_data, table_name, base_dir, ["date", "ticker"])
 
 
-def tickers_incremental(ticker_names: str | list[str], base_dir: str):
-    # i be DRY af frfr
-    def pull_interval(interval: str):
-        table_name = "ticker_hourly" if interval == "1h" else "ticker_daily"
-        # tbh i think reprocessing the last day every day is best
-        start = get_latest_partition_date(base_dir, table_name)
-        # start = get_latest_partition_date(base_dir, table_name) + timedelta(days=1)
-        print(f"Incremental ingestion start date: {start}")
-        df = None
+def _flatten_yf(df: DataFrame) -> DataFrame:
+    """
+    Flatten a yfinance DataFrame with multi-level columns into a long-form table.
+    Columns: date, ticker, open, high, low, close, volume
+    """
+    # handle either multi-indexed or single-ticker df
+    if isinstance(df.columns, pd.MultiIndex):
+        df = (
+            df.stack(level=-1, future_stack=True)
+            .rename_axis(["date", "ticker"])
+            .reset_index()
+        )
+    else:
+        df = df.reset_index()
+        df["ticker"] = "UNKNOWN"  # or pass it in manually if single ticker
+        df = df.rename(columns=str.lower)
 
-        if start is None:
-            print(f"No existing {table_name} data, run a full refresh first.")
-            return
-        if start.date() >= datetime.now().date():
-            print(
-                f"{table_name}: data is already up to date (won't pull {start.date()})"
-            )
-            return
-
-        print(f"Pulling tickers from date {start}")
-        start = start.strftime("%Y-%m-%d")
-        df = yf.download(ticker_names, interval=interval, start=start)
-        if df is not None and not df.empty:
-            df = flatten_yf(df)
-            save_df(df, table_name, base_dir, ["date", "ticker"])
-
-    pull_interval("1d")
-    sleep(30)
-    pull_interval("1h")
+    df.columns = [c.lower() for c in df.columns]
+    return df
 
 
-def save_df(
+def _save_df(
     df: DataFrame, name: str, base_dir: str, key_columns: list[str] | None = None
 ):
     """Save a DataFrame as a Parquet file. Expects `df` to contain a 'date' column.
@@ -118,28 +120,7 @@ def save_df(
         pq.write_table(table, file_path, compression="snappy")
 
 
-def flatten_yf(df: DataFrame) -> DataFrame:
-    """
-    Flatten a yfinance DataFrame with multi-level columns into a long-form table.
-    Columns: date, ticker, open, high, low, close, volume
-    """
-    # handle either multi-indexed or single-ticker df
-    if isinstance(df.columns, pd.MultiIndex):
-        df = (
-            df.stack(level=-1, future_stack=True)
-            .rename_axis(["date", "ticker"])
-            .reset_index()
-        )
-    else:
-        df = df.reset_index()
-        df["ticker"] = "UNKNOWN"  # or pass it in manually if single ticker
-        df = df.rename(columns=str.lower)
-
-    df.columns = [c.lower() for c in df.columns]
-    return df
-
-
-def get_latest_partition_date(base_dir: str, name: str) -> datetime:
+def _get_latest_partition_date(base_dir: str, name: str) -> datetime:
     """Find the latest year/month partition in a dataset directory"""
 
     path = Path(base_dir) / name

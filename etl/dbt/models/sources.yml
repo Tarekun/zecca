@@ -8,5 +8,5 @@ sources:
       - name: ticker_daily
         description: "Raw daily ticker data pulled from Yahoo Finance stored as partitioned Parquet"
         meta:
-          parquet_path: "../dataplatform/raw/ticker_daily/year=*/month=*/*.parquet"
+          parquet_path: "../../dataplatform/raw/ticker_daily/year=*/month=*/*.parquet"
           hive_partitioning: true

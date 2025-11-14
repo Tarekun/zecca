@@ -17,6 +17,6 @@ models:
       +materialized: table
 
 vars:
-  db_base: "../dataplatform"
+  db_base: "../../dataplatform"
   yfinance_data: "{{var('db_base')}}/raw"
   derived_data: "{{var('db_base')}}/transformed"
