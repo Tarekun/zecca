@@ -4,7 +4,6 @@ zecca_dbt:
     dev:
       type: duckdb
       path: "../../dataplatform/storage.duckdb"
-      external_root: ../../dataplatform/transformed
       extensions:
         - parquet
         - httpfs
