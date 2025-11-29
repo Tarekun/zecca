@@ -3,7 +3,7 @@ from dbt.cli.main import dbtRunner, dbtRunnerResult
 import os
 import sys
 from etl.sources import ingest_ticker_daily, ingest_ticker_hourly
-from alerting.telegrambot import send_message_to_group
+from etl.telegrambot import send_message_to_group
 
 
 @contextmanager

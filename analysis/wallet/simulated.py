@@ -1,4 +1,4 @@
-from wallet.interface import Wallet
+from analysis.wallet.interface import Wallet
 
 
 class Simulated(Wallet):

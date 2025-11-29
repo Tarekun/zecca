@@ -2,6 +2,8 @@
 /**/__pycache__
 /**/*.env
 tmp
+# some shit duckdb created
+.tmp
 
 dataplatform
 plots
