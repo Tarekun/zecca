@@ -8,7 +8,7 @@ import pyarrow.parquet as pq
 import re
 from time import sleep
 import yfinance as yf
-from db.queries import read_tickers, run_custom_query
+from analysis.db.queries import read_tickers, run_custom_query
 from etl.utils import yfincance_ticker_ingestion
 
 

@@ -3,7 +3,7 @@ import yaml
 from etl.etl import etl
 
 
-def load_config(config_path: str = "config.yml") -> dict:
+def load_config(config_path: str = "configs/config.yml") -> dict:
     """Load configuration from YAML file."""
     config_file = Path(config_path)
     with open(config_file, "r") as f:

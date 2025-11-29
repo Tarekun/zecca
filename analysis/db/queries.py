@@ -1,6 +1,6 @@
 import duckdb
 import pandas as pd
-from db.globals import YFINANCE_DIR
+from analysis.db.globals import YFINANCE_DIR
 
 
 def select_ticker(
