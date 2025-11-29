@@ -13,3 +13,5 @@ etl/dbt/dbt_packages
 etl/dbt/logs
 etl/dbt/package-lock.yml
 etl/dbt/target
+
+docs/.obsidian
