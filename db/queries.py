@@ -1,23 +1,19 @@
 import duckdb
 import pandas as pd
-from datetime import datetime
-from typing import Optional
-from db.globals import DEFAULT_DB_DIR
+from db.globals import YFINANCE_DIR
 
 
 def select_ticker(
     interval: str,
-    base_dir: str = DEFAULT_DB_DIR,
     year: int | list[int] | None = None,
     month: int | list[int] | None = None,
-    day: int | list[int] | None = None,
     ticker: str | list[str] | None = None,
 ) -> pd.DataFrame:
     """Ticker selection function `interval` is either '1d' or '1h'.
     Returns a pandas DataFrame"""
 
     table = "ticker_daily" if interval == "1d" else "ticker_hourly"
-    parquet_path = f"{base_dir}/{table}"
+    parquet_path = f"{YFINANCE_DIR}/{table}"
     query = f"""
         SELECT *
         FROM read_parquet('{parquet_path}/**/*.parquet', hive_partitioning=true)
@@ -25,17 +21,13 @@ def select_ticker(
     """
 
     if year is not None:
-        if isinstance(year, list):
-            years_str = ", ".join(str(y) for y in year)
-            query += f" AND year IN ({years_str})"
-        else:
-            query += f" AND year = {int(year)}"
+        query += _values_query("year", year)
+    if month is not None:
+        query += _values_query("month", month)
     if ticker is not None:
-        if isinstance(ticker, list):
-            tickers_str = ", ".join(f"'{t.upper()}'" for t in ticker)
-            query += f" AND ticker IN ({tickers_str})"
-        else:
-            query += f" AND ticker = '{ticker.upper()}'"
+        if not isinstance(ticker, list):
+            ticker = [ticker]
+        query += _values_query("ticker", [f"'{t.upper()}'" for t in ticker])
 
     return run_custom_query(query)
 
@@ -55,3 +47,11 @@ def run_custom_query(query: str):
     df = con.execute(query).fetch_df()
     con.close()
     return df
+
+
+def _values_query(col: str, values) -> str:
+    if isinstance(values, list):
+        values = ", ".join(str(val) for val in values)
+        return f" AND {col} IN ({values})"
+    else:
+        return f" AND {col} = {values}"
