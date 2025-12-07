@@ -1,9 +1,13 @@
+-- time_unit supported values: 1d
 {% macro candles_enhanced(time_unit, lookback_periods) %}
 {% set lookback_list = lookback_periods | map('int') | list %}
 WITH src AS (
-    SELECT 
-        -- TODO this probably wont be the same name always
-        date AS timeframe,
+    SELECT
+        -- TODO support different time units with proper source and aggregation
+        CASE
+            WHEN "{{time_unit}}" = "1d" THEN DATE(date)
+            ELSE date
+        END AS timeframe,
         ticker AS symbol,
         open,
         close,
@@ -17,6 +21,7 @@ WITH src AS (
 , with_returns AS (
     SELECT
         *,
+        -- column used internally to compute volatility
         {{safe_return(
             'close',
             'LAG(close, 1) OVER (PARTITION BY symbol ORDER BY timeframe)'
@@ -50,5 +55,5 @@ WITH src AS (
     FROM with_returns
 )
 
-SELECT * FROM with_rolling
+SELECT * EXCEPT(log_return) FROM with_rolling
 {% endmacro %}
