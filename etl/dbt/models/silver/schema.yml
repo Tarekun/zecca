@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: candles_daily
-    description: "Daily ticker data enriched with derivate indicators like rolling avgs, returns, volatility..."
+    description: "Daily stock data enriched with derivate indicators like rolling avgs, returns, volatility..."
     columns:
       - name: year
         description: "Year extracted from the date (for partitioning)"
@@ -42,6 +42,23 @@ models:
         description: "Trading volume of the day."
         data_type: bigint
 
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: ["symbol", "timeframe"]
+
+  - name: stock_daily_duck
+    description: "Daily stock asset price&fundamentals data indicators. This is the blending that feeds the output dataset for stocks"
+    columns:
+      - name: timeframe
+        description: "Reference date"
+        data_type: date
+        tests:
+          - not_null
+      - name: symbol
+        description: "Stock ticker symbol (e.g., AAPL, TSLA)."
+        data_type: string
+        tests:
+          - not_null
     tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns: ["symbol", "timeframe"]

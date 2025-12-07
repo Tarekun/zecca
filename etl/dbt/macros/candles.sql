@@ -5,7 +5,7 @@ WITH src AS (
     SELECT
         -- TODO support different time units with proper source and aggregation
         CASE
-            WHEN "{{time_unit}}" = "1d" THEN DATE(date)
+            WHEN '{{time_unit}}' = '1d' THEN DATE(date)
             ELSE date
         END AS timeframe,
         ticker AS symbol,
@@ -55,5 +55,5 @@ WITH src AS (
     FROM with_returns
 )
 
-SELECT * EXCEPT(log_return) FROM with_rolling
+SELECT * FROM with_rolling
 {% endmacro %}

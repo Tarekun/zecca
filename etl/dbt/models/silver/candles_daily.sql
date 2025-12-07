@@ -1,7 +1,5 @@
 {{ config(
-    materialized='incremental',
-    format='parquet',
-    post_hook="{{ materialized_partitioned_parquet(['year','month']) }}"
+    materialized = "table",
 ) }}
 
 
