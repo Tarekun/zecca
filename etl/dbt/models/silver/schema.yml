@@ -1,8 +1,8 @@
 version: 2
 
 models:
-  - name: ticker_daily_rolling
-    description: "Daily ticker data enriched with rolling averages (1w, 2w, 1m, 100d, 200d)."
+  - name: candles_daily
+    description: "Daily ticker data enriched with derivate indicators like rolling avgs, returns, volatility..."
     columns:
       - name: year
         description: "Year extracted from the date (for partitioning)"
@@ -16,17 +16,12 @@ models:
           - not_null
           - accepted_values:
               values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-      - name: day
-        description: "Day of the month extracted from the date."
-        data_type: integer
-        tests:
-          - not_null
-      - name: date
+      - name: timeframe
         description: "Reference date"
         data_type: date
         tests:
           - not_null
-      - name: ticker
+      - name: symbol
         description: "Stock ticker symbol (e.g., AAPL, TSLA)."
         data_type: string
         tests:
@@ -47,22 +42,6 @@ models:
         description: "Trading volume of the day."
         data_type: bigint
 
-      - name: open_rolling_1w
-        description: "7-day rolling average of the open price (including current day)."
-        data_type: float
-      - name: open_rolling_2w
-        description: "14-day rolling average of the open price (including current day)."
-        data_type: float
-      - name: open_rolling_1m
-        description: "30-day rolling average of the open price (including current day)."
-        data_type: float
-      - name: open_rolling_100d
-        description: "100-day rolling average of the open price (including current day)."
-        data_type: float
-      - name: open_rolling_200d
-        description: "200-day rolling average of the open price (including current day)."
-        data_type: float
-
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: ["ticker", "date"]
+          combination_of_columns: ["symbol", "timeframe"]
