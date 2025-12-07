@@ -45,4 +45,11 @@ select
     volatility_62_steps as volatility_1q,
     volatility_126_steps as volatility_6m,
     volatility_252_steps as volatility_1y,
+    sharpe_1_steps as sharpe_1_steps_1d,
+    sharpe_5_steps as sharpe_1w,
+    sharpe_20_steps as sharpe_1m,
+    sharpe_30_steps,
+    sharpe_62_steps as sharpe_1q,
+    sharpe_126_steps as sharpe_6m,
+    sharpe_252_steps as sharpe_1y,
 from candles
