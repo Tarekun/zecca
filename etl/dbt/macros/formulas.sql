@@ -1,6 +1,6 @@
 -- computes the "return" of a price point given a `entry_value` and a 
 -- `current_value`, iff both values are positive, evaluates to NULL otherwise
-{% macro safe_return(entry_value, current_value) %}
+{% macro safe_log_return(entry_value, current_value) %}
     case
         when {{ entry_value }} > 0 and {{ current_value }} > 0
         then ln({{ entry_value }} / {{ current_value }})
@@ -8,6 +8,14 @@
     end
 {% endmacro %}
 
+-- computes the return ratio: (current_value - initial_value) / initial_value
+{% macro safe_return(current_column, initial_value, steps) %}
+    case
+        when {{ initial_value }} = 0
+        then null
+        else ({{ current_column }} - {{ initial_value }}) / {{ initial_value }}
+    end
+{% endmacro %}
 
 -- computes the rolling avg of `column`, over `num_rows` rows, partitioned by
 -- `partition_by`, and ordered by `order_by`
