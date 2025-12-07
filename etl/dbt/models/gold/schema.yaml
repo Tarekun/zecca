@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: stock_daily
+    description: "Daily stock asset price&fundamentals data indicators dataset, output in yearly-partitioned parquet"
+    columns:
+      - name: timeframe
+        description: "Reference date"
+        data_type: date
+        tests:
+          - not_null
+      - name: symbol
+        description: "Stock ticker symbol (e.g., AAPL, TSLA)."
+        data_type: string
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: ["symbol", "timeframe"]
