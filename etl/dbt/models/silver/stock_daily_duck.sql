@@ -1,7 +1,9 @@
-{{ config(
-    materialized = "view"
-) }}
+{{
+    config(
+        materialized="view",
+    )
+}}
 
 
-SELECT *
-FROM {{ref("candles_daily")}}
+select *
+from {{ ref("candles_daily") }}

@@ -9,5 +9,14 @@
     "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.tabSize": 4,
     "editor.formatOnSave": true
-  }
+  },
+  "emeraldwalk.runonsave": {
+      "commands": [
+          {
+              "match": ".*\\.sql(\\.jinja)?",
+              "isAsync": true,
+              "cmd": "sqlfmt -l 100 ${file}"
+          }
+      ]
+  },
 }
