@@ -45,7 +45,7 @@ def etl(config: dict):
         run_dbt_build(config["incremental"])
         print("Job completed successfully!")
 
-        print("Another day another dolla")
+        send_message_to_group("Another day another dolla")
     except Exception as e:
         print(f"Job failed with error: {e}", file=sys.stderr)
         send_message_to_group(f"Errore nell'ELT giornaliero: {e}")
