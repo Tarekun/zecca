@@ -53,6 +53,8 @@ select
     sharpe_126_steps as sharpe_6m,
     sharpe_252_steps as sharpe_1y,
     rsi_14_steps as rsi,
+    overbought_14_steps as overbought,
+    oversold_14_steps as oversold,
     rsi_1_steps as rsi_1d,
     rsi_5_steps as rsi_1w,
     rsi_20_steps as rsi_1m,

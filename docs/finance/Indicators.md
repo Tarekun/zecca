@@ -37,3 +37,16 @@ Use cases: time series analysis, volatility clustering (GARCH?), risk modelling,
 
 
 ## Sharp Ratio
+
+
+## RSI
+RSI (Relative Strength Index) is a momentum indicator (ie an indicator of how much/fast the price of an asset is changing) and tries to compute the magnitude of price changes to detect overbought/oversold. Given a time window of $n$ steps, let $\delta_P$ the price diference for each steps, $G_n$ be the average gain over those $n$ steps and $L_n$ the average loss, defined as:
+$$G_n := AVG(max(0, \delta_P ))$$
+$$L_n := AVG(|min(0, \delta_P)|)$$
+then the RSI is defined as:
+$$RSI := 100 - \frac{100}{1+\frac{G_n}{L_n}}$$
+This indicator takes values in $[0,100]$, where values >70 should signal an overbought condition and values <30 should indicate and oversold condition. More conservative threasholds would be 80/20
+
+#### References
+[What Is a Momentum Indicator? Definition and Common Indicators](https://www.investopedia.com/investing/momentum-and-relative-strength-index/)
+[Relative Strength Index (RSI): What It Is, How It Works, and Formula](https://www.investopedia.com/terms/r/rsi.asp)
