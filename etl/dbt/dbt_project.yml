@@ -19,4 +19,5 @@ models:
 vars:
   db_base: "../../dataplatform"
   yfinance_data: "{{var('db_base')}}/raw"
+  sec_facts: "{{var('db_base')}}/raw/sec"
   derived_data: "{{var('db_base')}}/transformed"

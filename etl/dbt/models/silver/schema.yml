@@ -62,3 +62,24 @@ models:
     tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns: ["symbol", "timeframe"]
+
+  - name: sec_facts_schema
+    description: "Company facts source from the SEC containing fundamental data for companies"
+    columns:
+      - name: top_level_field
+        description: "Top level field in the `facts` JSON key"
+        tests:
+          - not_null
+      - name: attribute_name
+        description: "Name of the attribute as provided in the SEC data model"
+        tests:
+          - not_null
+          - unique
+      - name: label
+        description: "Label provided in the SEC data model"
+        tests:
+          - not_null
+      - name: description
+        description: "Description of the attribute as provided in the SEC data model"
+        tests:
+          - not_null
