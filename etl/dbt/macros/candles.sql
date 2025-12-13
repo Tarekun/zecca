@@ -20,20 +20,30 @@
                 *,
                 -- column used internally to compute volatility
                 {{
-                    safe_return(
+                    safe_log_return(
                         "close", "LAG(close, 1) OVER (PARTITION BY symbol ORDER BY timeframe)"
                     )
                 }} as log_return
+
                 {% for steps in lookback_list %}
                     ,
+                    {{
+                        safe_log_return(
+                            "close",
+                            "LAG(close, "
+                            ~ steps
+                            ~ ") OVER (PARTITION BY symbol ORDER BY timeframe)",
+                        )
+                    }} as log_return_{{ steps }}_steps,
                     {{
                         safe_return(
                             "close",
                             "LAG(close, "
                             ~ steps
                             ~ ") OVER (PARTITION BY symbol ORDER BY timeframe)",
+                            steps,
                         )
-                    }} as log_return_{{ steps }}_steps
+                    }} as return_{{ steps }}_steps
                 {% endfor %}
             from src
         ),
@@ -51,7 +61,7 @@
                 -- volatility: rolling std dev of 1-day log returns
                 {% for steps in lookback_list %}
                     ,
-                    {{ volatility("log_return", "symbol", "timeframe", 6) }}
+                    {{ volatility("log_return", "symbol", "timeframe", steps) }}
                     as volatility_{{ steps }}_steps
                 {% endfor %}
             from with_returns
