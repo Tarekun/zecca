@@ -18,6 +18,7 @@
         with_returns as (
             select
                 *,
+                close - lag(close, 1) over (partition by symbol order by timeframe) as price_diff,
                 -- column used internally to compute volatility
                 {{
                     safe_log_return(
@@ -76,8 +77,18 @@
                     as sharpe_{{ steps }}_steps
                 {% endfor %}
             from with_rolling
+        ),
+        with_rsi as (
+            select
+                *
+                {% for steps in lookback_list %}
+                    ,
+                    {{ relative_strength_index("price_diff", "symbol", "timeframe", steps) }}
+                    as rsi_{{ steps }}_steps
+                {% endfor %}
+            from with_sharpe
         )
 
     select *
-    from with_sharpe
+    from with_rsi
 {% endmacro %}
