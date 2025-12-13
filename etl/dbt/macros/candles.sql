@@ -23,7 +23,7 @@
                     safe_log_return(
                         "close", "LAG(close, 1) OVER (PARTITION BY symbol ORDER BY timeframe)"
                     )
-                }} as log_return
+                }} as return
 
                 {% for steps in lookback_list %}
                     ,
@@ -61,12 +61,23 @@
                 -- volatility: rolling std dev of 1-day log returns
                 {% for steps in lookback_list %}
                     ,
-                    {{ volatility("log_return", "symbol", "timeframe", steps) }}
+                    {{ volatility("return", "symbol", "timeframe", steps) }}
                     as volatility_{{ steps }}_steps
                 {% endfor %}
             from with_returns
+        ),
+        -- Sharpe ratio = return / volatility
+        with_sharpe as (
+            select
+                *
+                {% for steps in lookback_list %}
+                    ,
+                    {{ safe_div("return_" ~ steps ~ "_steps", "volatility_" ~ steps ~ "_steps") }}
+                    as sharpe_{{ steps }}_steps
+                {% endfor %}
+            from with_rolling
         )
 
     select *
-    from with_rolling
+    from with_sharpe
 {% endmacro %}
