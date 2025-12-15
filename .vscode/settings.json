@@ -15,7 +15,7 @@
           {
               "match": ".*\\.sql(\\.jinja)?",
               "isAsync": true,
-              "cmd": "sqlfmt -l 100 ${file}"
+              "cmd": "sqlfmt -l 80 ${file}"
           }
       ]
   },
