@@ -34,3 +34,21 @@
         order by {{ order_by }} rows between {{ num_rows }} preceding and current row
     )
 {% endmacro %}
+
+
+{% macro relative_strength_index(price_diff, partition_by, order_by, num_rows) %}
+    (
+        100
+        - 100
+        / (
+            1 + avg(case when {{ price_diff }} > 0 then {{ price_diff }} else 0 end) over (
+                partition by {{ partition_by }}
+                order by {{ order_by }} rows between {{ num_rows }} preceding and current row
+            )
+            / avg(case when {{ price_diff }} < 0 then abs({{ price_diff }}) else 0 end) over (
+                partition by {{ partition_by }}
+                order by {{ order_by }} rows between {{ num_rows }} preceding and current row
+            )
+        )
+    )
+{% endmacro %}

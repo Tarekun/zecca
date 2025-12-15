@@ -18,6 +18,7 @@
         with_returns as (
             select
                 *,
+                close - lag(close, 1) over (partition by symbol order by timeframe) as price_diff,
                 -- column used internally to compute volatility
                 {{
                     safe_log_return(
@@ -64,7 +65,26 @@
                     {{ volatility("return", "symbol", "timeframe", steps) }}
                     as volatility_{{ steps }}_steps
                 {% endfor %}
+
+                -- RSI value computation
+                {% for steps in lookback_list %}
+                    ,
+                    {{ relative_strength_index("price_diff", "symbol", "timeframe", steps) }}
+                    as rsi_{{ steps }}_steps
+                {% endfor %}
             from with_returns
+        ),
+        with_rsi_detection as (
+            select
+                *
+                {% for steps in lookback_list %}
+                    ,
+                    rsi_{{ steps }}_steps > 70 as overbought_{{ steps }}_steps,
+                    rsi_{{ steps }}_steps < 30 as oversold_{{ steps }}_steps,
+                    rsi_{{ steps }}_steps > 80 as overbought_conservative_{{ steps }}_steps,
+                    rsi_{{ steps }}_steps < 20 as oversold_conservative_{{ steps }}_steps
+                {% endfor %}
+            from with_rolling
         ),
         -- Sharpe ratio = return / volatility
         with_sharpe as (
@@ -75,7 +95,7 @@
                     {{ safe_div("return_" ~ steps ~ "_steps", "volatility_" ~ steps ~ "_steps") }}
                     as sharpe_{{ steps }}_steps
                 {% endfor %}
-            from with_rolling
+            from with_rsi_detection
         )
 
     select *

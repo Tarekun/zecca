@@ -5,7 +5,7 @@
 }}
 
 
-with candles as ({{ candles_enhanced("1d", [1, 5, 20, 30, 62, 126, 252]) }})
+with candles as ({{ candles_enhanced("1d", [1, 5, 14, 20, 30, 62, 126, 252]) }})
 
 select
     timeframe,
@@ -52,4 +52,14 @@ select
     sharpe_62_steps as sharpe_1q,
     sharpe_126_steps as sharpe_6m,
     sharpe_252_steps as sharpe_1y,
+    rsi_14_steps as rsi,
+    overbought_14_steps as overbought,
+    oversold_14_steps as oversold,
+    rsi_1_steps as rsi_1d,
+    rsi_5_steps as rsi_1w,
+    rsi_20_steps as rsi_1m,
+    rsi_30_steps,
+    rsi_62_steps as rsi_1q,
+    rsi_126_steps as rsi_6m,
+    rsi_252_steps as rsi_1y,
 from candles

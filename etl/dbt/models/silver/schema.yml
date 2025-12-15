@@ -41,7 +41,13 @@ models:
       - name: volume
         description: "Trading volume of the day."
         data_type: bigint
-
+      - name: rsi
+        description: "14 trading days steps RSI"
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              where: "not isnan(rsi)"
     tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns: ["symbol", "timeframe"]
