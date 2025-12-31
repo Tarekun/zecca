@@ -42,7 +42,7 @@ def read_tickers(base_dir: str) -> pd.DataFrame:
     )
 
 
-def run_custom_query(query: str):
+def run_custom_query(query: str) -> pd.DataFrame:
     con = duckdb.connect(database=":memory:")
     df = con.execute(query).fetch_df()
     con.close()
