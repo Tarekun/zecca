@@ -8,11 +8,10 @@ def label_returns_dynamic(
     steps: int,
     price_col: str = "open",
     custom_labels: list | None = None,
-):
+) -> pd.DataFrame:
     """
     Compute future-return labels for a stock time series using dynamic,
     symmetric threshold bins.
-
     The function aligns rows by symbol, computes the future price after a
     specified lookahead (`steps`), derives the percentage return, and assigns
     each row to a label based on user-provided return thresholds.
@@ -82,14 +81,6 @@ def label_returns_dynamic(
     ... })
     >>> label_returns_dynamic(df, thresholds=[0.01, 0.03], steps=1)
     """
-    df = df.copy()
-    df = df.sort_values(["symbol", "timeframe"])
-
-    future_price_col = f"{price_col}_future_{steps}"
-    return_col = f"future_return_{steps}"
-    df[future_price_col] = df.groupby("symbol")[price_col].shift(-steps)
-    df[return_col] = df[future_price_col] / df[price_col] - 1
-
     posi = sorted(thresholds)
     # remove 0 from negative side so we dont duplicate it
     nega = [-t for t in reversed(posi) if t != 0]
@@ -98,6 +89,13 @@ def label_returns_dynamic(
         raise ValueError(
             f"Thresholds {thresholds} produce {len(bin_edges)-1} classes, but only {len(custom_labels)} custom labels were provided"
         )
+
+    df = df.copy()
+    df = df.sort_values(["symbol", "timeframe"])
+    future_price_col = f"{price_col}_future_{steps}"
+    return_col = f"future_return_{steps}"
+    df[future_price_col] = df.groupby("symbol")[price_col].shift(-steps)
+    df[return_col] = df[future_price_col] / df[price_col] - 1
 
     df["label"] = pd.cut(
         df[return_col],
