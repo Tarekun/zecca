@@ -49,12 +49,8 @@ def safe_div(numerator: pl.Expr, denominator: pl.Expr) -> pl.Expr:
 
 
 def rolling_avg(col: pl.Expr, window: int) -> pl.Expr:
-    """Compute a rolling mean with a window of exactly *window* rows.
-    Call ``.over(partition)`` on the returned expression to restrict computation to a partition.
-
-    Args:
-        col: Expression to average.
-        window: Total window size passed directly to ``rolling_mean``.
+    """Compute a rolling mean with a window of exactly `window` rows.
+    Call `.over(partition)` on the returned expression to restrict computation to a partition.
 
     Returns:
         Polars rolling-mean expression.
@@ -66,7 +62,7 @@ def volatility(col: pl.Expr, window: int) -> pl.Expr:
     """Compute the rolling sample standard deviation of *col* over a window of *window* rows.
 
     Two or more non-null rows are required per window; windows with fewer yield ``None``.
-    Call ``.over(partition)`` on the returned expression to restrict computation to a partition.
+    Call `.over(partition)` on the returned expression to restrict computation to a partition.
 
     Args:
         col: Expression whose volatility to compute (typically the 1-day log return).

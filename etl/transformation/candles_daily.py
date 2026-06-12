@@ -1,5 +1,8 @@
-import logging
 from pathlib import Path
+
+from etl.logger import get_logger
+
+logger = get_logger(__name__)
 
 import polars as pl
 
@@ -11,46 +14,10 @@ from etl.transformation.indicators import (
     safe_return,
     volatility,
 )
-
-_logger = logging.getLogger(__name__)
+from etl.transformation.utils import load_ticker_daily
 
 # Lookback periods in trading days, matching candles_enhanced([1, 5, 14, 20, 30, 62, 126, 252])
 _LOOKBACKS = [1, 5, 14, 20, 30, 62, 126, 252]
-_RAW_COLS = ["date", "ticker", "open", "close", "high", "low", "volume"]
-
-
-def read_ticker_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
-    """Read raw ticker_daily hive-partitioned parquet into an eager DataFrame.
-
-    Uses ``scan_parquet`` with ``extra_columns='ignore'`` to tolerate the legacy
-    ``__index_level_0__`` column written by pandas into some monthly files.  Without
-    this flag Polars infers the schema from the first file it encounters and then
-    raises a ``SchemaError`` when a subsequent file contains additional columns.
-
-    Args:
-        yfinance_data_path: Root directory of the yfinance data store — the value
-            that maps to the ``yfinance_data`` dbt variable in ``profiles.yml``.
-
-    Returns:
-        Eager DataFrame with columns: ``date``, ``ticker``, ``open``, ``close``,
-        ``high``, ``low``, ``volume``.
-    """
-    data_path = Path(yfinance_data_path)
-    source_glob = str(data_path / "ticker_daily" / "year=*" / "month=*" / "*.parquet")
-
-    _logger.info("Reading ticker_daily parquet from %s", source_glob)
-    df = (
-        pl.scan_parquet(source_glob, hive_partitioning=True, extra_columns="ignore")
-        .select(_RAW_COLS)
-        .collect()
-    )
-    _logger.info(
-        "Loaded raw data: %d rows × %d cols — %.1f MB",
-        df.height,
-        df.width,
-        df.estimated_size("mb"),
-    )
-    return df
 
 
 def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
@@ -83,7 +50,7 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
       A window of 1 row can never satisfy ``min_samples=2``, so the sample
       standard deviation is undefined for the 1-day lookback.
     """
-    df = read_ticker_daily(yfinance_data_path)
+    df = load_ticker_daily(yfinance_data_path)
 
     df = (
         df.rename({"ticker": "symbol"})
@@ -94,7 +61,9 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
 
     # 1-day price diff (RSI input) and 1-day log return (volatility input)
     df = df.with_columns(
-        (pl.col("close") - pl.col("close").shift(1).over("symbol")).alias("_price_diff"),
+        (pl.col("close") - pl.col("close").shift(1).over("symbol")).alias(
+            "_price_diff"
+        ),
         safe_log_return(
             pl.col("close"),
             pl.col("close").shift(1).over("symbol"),
@@ -125,17 +94,34 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
 
     # Rolling averages, volatility, RSI — all partitioned by symbol
     df = df.with_columns(
-        [rolling_avg(pl.col("open"), s).over("symbol").alias(f"open_rolling_{s}_steps") for s in _LOOKBACKS]
+        [
+            rolling_avg(pl.col("open"), s)
+            .over("symbol")
+            .alias(f"open_rolling_{s}_steps")
+            for s in _LOOKBACKS
+        ]
         + [pl.lit(None, dtype=pl.Float64).alias("volatility_1_steps")]
-        + [volatility(pl.col("_return"), s).over("symbol").alias(f"volatility_{s}_steps") for s in _vol_lookbacks]
-        + [relative_strength_index(pl.col("_price_diff"), s).over("symbol").alias(f"rsi_{s}_steps") for s in _LOOKBACKS]
+        + [
+            volatility(pl.col("_return"), s)
+            .over("symbol")
+            .alias(f"volatility_{s}_steps")
+            for s in _vol_lookbacks
+        ]
+        + [
+            relative_strength_index(pl.col("_price_diff"), s)
+            .over("symbol")
+            .alias(f"rsi_{s}_steps")
+            for s in _LOOKBACKS
+        ]
     )
 
     # Sharpe ratio = return / volatility; 1-step is null because volatility_1_steps is null.
     df = df.with_columns(
         [pl.lit(None, dtype=pl.Float64).alias("sharpe_1_steps")]
         + [
-            safe_div(pl.col(f"return_{s}_steps"), pl.col(f"volatility_{s}_steps")).alias(f"sharpe_{s}_steps")
+            safe_div(
+                pl.col(f"return_{s}_steps"), pl.col(f"volatility_{s}_steps")
+            ).alias(f"sharpe_{s}_steps")
             for s in _vol_lookbacks
         ]
     )
@@ -209,7 +195,7 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
             pl.col("rsi_252_steps").alias("rsi_1y"),
         ]
     )
-    _logger.info(
+    logger.info(
         "Returning candles_daily: %d rows × %d cols — %.1f MB",
         result.height,
         result.width,

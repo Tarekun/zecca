@@ -9,6 +9,9 @@ import re
 from time import sleep
 import yfinance as yf
 from analysis.db.queries import read_tickers, run_custom_query
+from etl.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def yfincance_ticker_ingestion(interval: str, base_dir: str, incremental: bool = True):
@@ -27,14 +30,14 @@ def yfincance_ticker_ingestion(interval: str, base_dir: str, incremental: bool =
         start_date: datetime = _get_latest_partition_date(base_dir, table_name)
         # start_date = get_latest_partition_date(base_dir, table_name) + timedelta(days=1)
         if start_date is None:
-            print(f"No existing {table_name} data, run a full refresh first.")
+            logger.warning("No existing %s data, run a full refresh first.", table_name)
             return
         # TODO review timezone handling
         if start_date.replace(tzinfo=timezone.utc) >= datetime.now(timezone.utc):
-            print(f"{table_name}: data is already up to date (won't pull {start_date})")
+            logger.info("%s: data is already up to date (won't pull %s)", table_name, start_date)
             return
         start = start_date.strftime("%Y-%m-%d")
-        print(f"Incremental ingestion start date: {start}")
+        logger.info("Incremental ingestion start date: %s", start)
     if not incremental and interval == "1h":
         period = "2y"
         start = None
@@ -43,8 +46,9 @@ def yfincance_ticker_ingestion(interval: str, base_dir: str, incremental: bool =
     for i in range(0, total, batch_size):
         try:
             batch = ticker_names[i : i + batch_size]
-            print(
-                f"Processing batch {i // batch_size + 1}/{num_batches}: {len(batch)} tickers"
+            logger.info(
+                "Processing batch %d/%d: %d tickers",
+                i // batch_size + 1, num_batches, len(batch),
             )
 
             df = yf.download(batch, interval=interval, period=period, start=start)
@@ -53,7 +57,7 @@ def yfincance_ticker_ingestion(interval: str, base_dir: str, incremental: bool =
                 full_data = pd.concat([full_data, df], ignore_index=True)
             sleep(30)
         except Exception as e:
-            print(f"⚠️  Batch {i // batch_size + 1} failed: {e}")
+            logger.warning("Batch %d failed: %s", i // batch_size + 1, e)
 
     _save_df(full_data, table_name, base_dir, ["date", "ticker"])
 
