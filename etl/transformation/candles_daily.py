@@ -9,9 +9,9 @@ import polars as pl
 from etl.transformation.indicators import (
     relative_strength_index,
     rolling_avg,
-    safe_div,
     safe_log_return,
     safe_return,
+    sharpe_ratio,
     volatility,
 )
 from etl.transformation.utils import load_ticker_daily
@@ -70,7 +70,7 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
         ).alias("_return"),
     )
 
-    # Per-lookback log returns and percentage returns
+    # log returns and percentage returns
     df = df.with_columns(
         [
             expr
@@ -88,11 +88,7 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
         ]
     )
 
-    # volatility requires window >= min_samples (2); exclude s=1 to avoid an
-    # InvalidOperationError from Polars and emit that column as explicit null instead.
-    _vol_lookbacks = [s for s in _LOOKBACKS if s >= 2]
-
-    # Rolling averages, volatility, RSI — all partitioned by symbol
+    # rolling averages, volatility, RSI — all partitioned by symbol
     df = df.with_columns(
         [
             rolling_avg(pl.col("open"), s)
@@ -100,12 +96,11 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
             .alias(f"open_rolling_{s}_steps")
             for s in _LOOKBACKS
         ]
-        + [pl.lit(None, dtype=pl.Float64).alias("volatility_1_steps")]
         + [
             volatility(pl.col("_return"), s)
             .over("symbol")
             .alias(f"volatility_{s}_steps")
-            for s in _vol_lookbacks
+            for s in _LOOKBACKS
         ]
         + [
             relative_strength_index(pl.col("_price_diff"), s)
@@ -115,14 +110,12 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
         ]
     )
 
-    # Sharpe ratio = return / volatility; 1-step is null because volatility_1_steps is null.
     df = df.with_columns(
-        [pl.lit(None, dtype=pl.Float64).alias("sharpe_1_steps")]
-        + [
-            safe_div(
+        [
+            sharpe_ratio(
                 pl.col(f"return_{s}_steps"), pl.col(f"volatility_{s}_steps")
             ).alias(f"sharpe_{s}_steps")
-            for s in _vol_lookbacks
+            for s in _LOOKBACKS
         ]
     )
 

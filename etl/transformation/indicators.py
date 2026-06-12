@@ -48,6 +48,21 @@ def safe_div(numerator: pl.Expr, denominator: pl.Expr) -> pl.Expr:
     return pl.when(denominator != 0).then(numerator / denominator).otherwise(None)
 
 
+def sharpe_ratio(ret: pl.Expr, vol: pl.Expr) -> pl.Expr:
+    """Compute the Sharpe ratio as `ret / vol`, returning ``None`` when volatility
+    is zero or null.
+
+    Args:
+        ret: Expression of percentage returns.
+        vol: Expression of rolling volatility (standard deviation of returns).
+
+    Returns:
+        Polars expression yielding the Sharpe ratio, or ``None`` when *vol* is
+        zero or null.
+    """
+    return pl.when(vol.is_not_null() & (vol != 0)).then(ret / vol).otherwise(None)
+
+
 def rolling_avg(col: pl.Expr, window: int) -> pl.Expr:
     """Compute a rolling mean with a window of exactly `window` rows.
     Call `.over(partition)` on the returned expression to restrict computation to a partition.
@@ -59,19 +74,18 @@ def rolling_avg(col: pl.Expr, window: int) -> pl.Expr:
 
 
 def volatility(col: pl.Expr, window: int) -> pl.Expr:
-    """Compute the rolling sample standard deviation of *col* over a window of *window* rows.
-
+    """Compute the rolling sample standard deviation of `col` over a window of `window` rows.
     Two or more non-null rows are required per window; windows with fewer yield ``None``.
     Call `.over(partition)` on the returned expression to restrict computation to a partition.
 
     Args:
-        col: Expression whose volatility to compute (typically the 1-day log return).
-        window: Total window size passed directly to ``rolling_std``.
+        col: Expression whose volatility to compute
+        window: Total window size passed directly to `rolling_std`
 
     Returns:
         Polars rolling sample standard-deviation expression (ddof=1).
     """
-    return col.rolling_std(window_size=window, min_samples=2, ddof=1)
+    return col.rolling_std(window_size=window, min_samples=1, ddof=1)
 
 
 def relative_strength_index(price_diff: pl.Expr, window: int) -> pl.Expr:

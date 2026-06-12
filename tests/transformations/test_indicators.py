@@ -9,9 +9,9 @@ sys.path.append(str(Path(__file__).parents[2]))
 from etl.transformation.indicators import (
     relative_strength_index,
     rolling_avg,
-    safe_div,
     safe_log_return,
     safe_return,
+    sharpe_ratio,
     volatility,
 )
 
@@ -139,27 +139,33 @@ def test_safe_return_null_for_zero_initial():
 
 
 # ---------------------------------------------------------------------------
-# safe_div
+# sharpe_ratio
 # ---------------------------------------------------------------------------
 
 
-def test_safe_div_normal_division():
-    """safe_div returns the correct quotient for non-zero denominators."""
-    df = pl.DataFrame({"num": [6.0, -9.0, 0.0], "den": [2.0, 3.0, 4.0]})
-    result = df.with_columns(safe_div(pl.col("num"), pl.col("den")).alias("res"))
-    assert result["res"][0] == pytest.approx(3.0), "6 / 2 should be 3.0"
-    assert result["res"][1] == pytest.approx(-3.0), "-9 / 3 should be -3.0"
-    assert result["res"][2] == pytest.approx(0.0), "0 / 4 should be 0.0"
+def test_sharpe_ratio_matches_formula():
+    """sharpe_ratio returns ret / vol for normal non-zero inputs."""
+    df = pl.DataFrame({"ret": [0.1, -0.05, 0.0], "vol": [0.2, 0.25, 0.1]})
+    result = df.with_columns(sharpe_ratio(pl.col("ret"), pl.col("vol")).alias("sr"))
+    assert result["sr"][0] == pytest.approx(0.5), "0.1 / 0.2 should be 0.5"
+    assert result["sr"][1] == pytest.approx(-0.2), "-0.05 / 0.25 should be -0.2"
+    assert result["sr"][2] == pytest.approx(0.0), "0.0 / 0.1 should be 0.0"
 
 
-def test_safe_div_zero_denominator():
-    """safe_div must return null when the denominator is zero."""
-    df = pl.DataFrame({"num": [6.0, 1.0], "den": [2.0, 0.0]})
-    result = df.with_columns(safe_div(pl.col("num"), pl.col("den")).alias("res"))
-    assert result["res"][0] == pytest.approx(3.0), "6 / 2 should be 3.0"
-    assert (
-        result["res"][1] is None
-    ), "safe_div with denominator = 0 must yield null, not inf or a ZeroDivisionError"
+def test_sharpe_ratio_null_for_zero_vol():
+    """sharpe_ratio must return null when volatility is zero."""
+    df = pl.DataFrame({"ret": [0.1, 0.05], "vol": [0.2, 0.0]})
+    result = df.with_columns(sharpe_ratio(pl.col("ret"), pl.col("vol")).alias("sr"))
+    assert result["sr"][0] == pytest.approx(0.5), "0.1 / 0.2 should be 0.5"
+    assert result["sr"][1] is None, "sharpe_ratio with vol = 0 must yield null"
+
+
+def test_sharpe_ratio_null_for_null_vol():
+    """sharpe_ratio must return null when volatility is null (e.g. 1-step lookback)."""
+    df = pl.DataFrame({"ret": [0.1, 0.05], "vol": [0.2, None]})
+    result = df.with_columns(sharpe_ratio(pl.col("ret"), pl.col("vol")).alias("sr"))
+    assert result["sr"][0] == pytest.approx(0.5), "0.1 / 0.2 should be 0.5"
+    assert result["sr"][1] is None, "sharpe_ratio with vol = null must yield null"
 
 
 # ---------------------------------------------------------------------------
