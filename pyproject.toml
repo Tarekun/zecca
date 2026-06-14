@@ -10,5 +10,6 @@ dependencies = [
     "pytelegrambotapi>=4.34.0",
     "pytest>=9.0.3",
     "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
     "yfinance>=1.4.1",
 ]
