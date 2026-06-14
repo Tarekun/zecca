@@ -6,18 +6,18 @@ import pytest
 
 sys.path.append(str(Path(__file__).parents[3]))
 
+from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
+
 _PROJECT_ROOT = Path(__file__).parents[3]
-_SILVER_PARQUET = (
-    _PROJECT_ROOT / "dataplatform" / "silver" / "sec_company_facts" / "sec_company_facts.parquet"
-)
 _RAW_SEC_DIR = _PROJECT_ROOT / "dataplatform" / "raw" / "sec"
 _TEST_OUTPUTS = _PROJECT_ROOT / "dataplatform" / "test_outputs"
+
+_df = SecCompanyFactsSilver().load_from_disk()
 
 
 def test_no_null_cik():
     """No row in sec_company_facts should have a null CIK."""
-    df = pl.read_parquet(_SILVER_PARQUET)
-    null_rows = df.filter(pl.col("cik").is_null())
+    null_rows = _df.filter(pl.col("cik").is_null())
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null CIK.\n"
@@ -28,9 +28,8 @@ def test_no_null_cik():
 def test_cik_count_matches_file_count():
     """The number of distinct CIK values in the silver model must equal the number
     of source JSON files under dataplatform/raw/sec — one row (possibly null) per file."""
-    df = pl.read_parquet(_SILVER_PARQUET)
     file_count = len(list(_RAW_SEC_DIR.glob("*.json")))
-    distinct_ciks = df["cik"].n_unique()
+    distinct_ciks = _df["cik"].n_unique()
 
     assert distinct_ciks == file_count, (
         f"Expected {file_count} distinct CIK values (one per source file) "
@@ -44,10 +43,8 @@ def test_each_cik_has_at_least_one_val():
     CIKs that never have a val are written to
     dataplatform/test_outputs/sec_company_facts_missing_val.csv for inspection.
     """
-    df = pl.read_parquet(_SILVER_PARQUET)
-
-    ciks_with_val = df.filter(pl.col("val").is_not_null()).select("cik").unique()
-    all_ciks = df.select("cik").unique()
+    ciks_with_val = _df.filter(pl.col("val").is_not_null()).select("cik").unique()
+    all_ciks = _df.select("cik").unique()
 
     missing_val = all_ciks.join(ciks_with_val, on="cik", how="anti").sort("cik")
 

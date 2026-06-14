@@ -6,17 +6,11 @@ import pytest
 
 sys.path.append(str(Path(__file__).parents[3]))
 
-_PROJECT_ROOT = Path(__file__).parents[3]
-_SILVER_PARQUET = (
-    _PROJECT_ROOT
-    / "dataplatform"
-    / "silver"
-    / "sec_company_facts_padded"
-    / "sec_company_facts_padded.parquet"
-)
-_TEST_OUTPUTS = _PROJECT_ROOT / "dataplatform" / "test_outputs"
+from etl.transformation.silver.sec_company_facts_padded import SecCompanyFactsPaddedSilver
 
-_df = pl.read_parquet(_SILVER_PARQUET)
+_TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
+
+_df = SecCompanyFactsPaddedSilver().load_from_disk()
 
 
 def test_no_null_cik():
