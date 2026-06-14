@@ -7,6 +7,7 @@ import yaml
 
 from etl.logger import get_logger
 from etl.transformation.candles_daily import compute_candles_daily
+from etl.transformation.sec_company_facts import compute_sec_company_facts
 
 logger = get_logger(__name__)
 
@@ -85,6 +86,9 @@ def build_silver():
     _store_dataframe(
         candles_daily, "candles_daily", "silver", partitioning_columns=["year", "month"]
     )
+
+    sec_company_facts = compute_sec_company_facts(f"{DATAPLATFORM_ROOT}/raw/sec/")
+    _store_dataframe(sec_company_facts, "sec_company_facts", "silver")
 
 
 def build_gold():
