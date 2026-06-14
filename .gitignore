@@ -12,6 +12,7 @@ plots
 etl/dbt/.user.yml
 etl/dbt/dbt_packages
 logs
+ouputs
 etl/dbt/package-lock.yml
 etl/dbt/target
 
