@@ -32,13 +32,22 @@ def compute_sec_company_facts_padded(dataplatform_root: str | Path) -> pl.DataFr
         / "sec_company_facts.parquet"
     )
 
+    tickers_path = (
+        Path(dataplatform_root) / "silver" / "company_tickers" / "company_tickers.parquet"
+    )
+
     logger.info("Reading sec_company_facts from %s", parquet_path)
+
+    tickers = pl.read_parquet(tickers_path).select(
+        pl.col("cik_str").alias("cik"), pl.col("ticker")
+    )
 
     df = (
         pl.read_parquet(parquet_path)
         .rename({"val": "number_of_shares"})
         .filter(pl.col("cik").is_not_null() & pl.col("end").is_not_null())
         .drop("source_file")
+        .join(tickers, on="cik", how="left")
         .sort(["cik", "end"])
     )
 

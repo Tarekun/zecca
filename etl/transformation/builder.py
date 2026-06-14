@@ -7,6 +7,7 @@ import yaml
 
 from etl.logger import get_logger
 from etl.transformation.candles_daily import compute_candles_daily
+from etl.transformation.company_tickers import compute_company_tickers
 from etl.transformation.sec_company_facts import compute_sec_company_facts
 from etl.transformation.sec_company_facts_padded import compute_sec_company_facts_padded
 
@@ -82,6 +83,9 @@ def _backup_transformed():
 
 def build_silver():
     """Build all silver layer models"""
+
+    company_tickers = compute_company_tickers(f"{DATAPLATFORM_ROOT}/raw/")
+    _store_dataframe(company_tickers, "company_tickers", "silver")
 
     candles_daily = compute_candles_daily(f"{DATAPLATFORM_ROOT}/raw/")
     _store_dataframe(
