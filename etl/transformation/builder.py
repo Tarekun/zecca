@@ -8,6 +8,7 @@ import yaml
 from etl.logger import get_logger
 from etl.transformation.candles_daily import compute_candles_daily
 from etl.transformation.sec_company_facts import compute_sec_company_facts
+from etl.transformation.sec_company_facts_padded import compute_sec_company_facts_padded
 
 logger = get_logger(__name__)
 
@@ -89,6 +90,9 @@ def build_silver():
 
     sec_company_facts = compute_sec_company_facts(f"{DATAPLATFORM_ROOT}/raw/sec/")
     _store_dataframe(sec_company_facts, "sec_company_facts", "silver")
+
+    sec_company_facts_padded = compute_sec_company_facts_padded(DATAPLATFORM_ROOT)
+    _store_dataframe(sec_company_facts_padded, "sec_company_facts_padded", "silver")
 
 
 def build_gold():

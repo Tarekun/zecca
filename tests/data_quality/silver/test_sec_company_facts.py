@@ -14,6 +14,17 @@ _RAW_SEC_DIR = _PROJECT_ROOT / "dataplatform" / "raw" / "sec"
 _TEST_OUTPUTS = _PROJECT_ROOT / "dataplatform" / "test_outputs"
 
 
+def test_no_null_cik():
+    """No row in sec_company_facts should have a null CIK."""
+    df = pl.read_parquet(_SILVER_PARQUET)
+    null_rows = df.filter(pl.col("cik").is_null())
+
+    assert null_rows.height == 0, (
+        f"Found {null_rows.height} row(s) with a null CIK.\n"
+        f"Sample (up to 20):\n{null_rows.head(20)}"
+    )
+
+
 def test_cik_count_matches_file_count():
     """The number of distinct CIK values in the silver model must equal the number
     of source JSON files under dataplatform/raw/sec — one row (possibly null) per file."""
