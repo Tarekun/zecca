@@ -1,11 +1,11 @@
 from pathlib import Path
 import polars as pl
 
-from etl.transformation.silver.candles_daily import CandlesDailySilver
+from etl.transformation.silver.stocks_daily import StocksDailySilver
 from etl.transformation.model import Model
 
 
-class StocksDailySilver(Model):
+class StocksDailyGold(Model):
     def __init__(self):
         super().__init__(
             name="stocks_daily",
@@ -14,4 +14,4 @@ class StocksDailySilver(Model):
         )
 
     def _build(self) -> pl.DataFrame:
-        return CandlesDailySilver("").load_from_disk()
+        return StocksDailySilver().load_from_disk()

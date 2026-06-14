@@ -10,7 +10,8 @@ from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 from etl.transformation.silver.sec_company_facts_padded import (
     SecCompanyFactsPaddedSilver,
 )
-from etl.transformation.gold.stocks_daily import StocksDailySilver
+from etl.transformation.silver.stocks_daily import StocksDailySilver
+from etl.transformation.gold.stocks_daily import StocksDailyGold
 
 logger = get_logger(__name__)
 
@@ -51,6 +52,7 @@ def build_silver():
         CandlesDailySilver(f"{DATAPLATFORM_ROOT}/raw/"),
         SecCompanyFactsSilver(f"{DATAPLATFORM_ROOT}/raw/sec/"),
         SecCompanyFactsPaddedSilver(DATAPLATFORM_ROOT),
+        StocksDailySilver(),
     ]:
         model.build()
         model.store()
@@ -60,7 +62,7 @@ def build_silver():
 def build_gold():
     """Build all gold layer models, assuming silver models have been processed"""
 
-    model = StocksDailySilver()
+    model = StocksDailyGold()
     model.build()
     model.store()
     model.free()
