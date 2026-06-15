@@ -31,15 +31,26 @@ def compute_with_polars() -> pl.DataFrame:
     return df
 
 
-_CANDLES_GLOB = str(Path(DATAPLATFORM_ROOT) / "silver" / "candles_daily" / "**" / "*.parquet")
-_SEC_PATH = str(Path(DATAPLATFORM_ROOT) / "silver" / "sec_company_facts_padded" / "sec_company_facts_padded.parquet")
+# TODO handle this better
+_CANDLES_GLOB = str(
+    Path(DATAPLATFORM_ROOT) / "silver" / "candles_daily" / "**" / "*.parquet"
+)
+_SEC_PATH = str(
+    Path(DATAPLATFORM_ROOT)
+    / "silver"
+    / "sec_company_facts_padded"
+    / "sec_company_facts_padded.parquet"
+)
 
 
 def compute_with_duckdb() -> pl.DataFrame:
     logger.debug("Using source: CandlesDailySilver, SecCompanyFactsPaddedSilver")
     with duckdb.connect() as conn:
         return conn.execute(f"""
-            SELECT c.*, s.number_of_shares, s.number_of_shares * c.open AS evaluation
+            SELECT
+                c.*,
+                s.number_of_shares,
+                s.number_of_shares * c.open AS evaluation
             FROM read_parquet('{_CANDLES_GLOB}', hive_partitioning = true) c
             LEFT JOIN (
                 SELECT ticker, reference_date, number_of_shares
