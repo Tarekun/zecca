@@ -45,6 +45,7 @@ def compute_from_source(yfinance_data_path: str | Path) -> pl.DataFrame:
         - RSI (14-step): ``rsi``, ``overbought``, ``oversold``
         - RSI (other periods): ``rsi_1d/1w/1m/30_steps/1q/6m/1y``
     """
+    logger.debug("Using source: %s", yfinance_data_path)
     df = load_ticker_daily(yfinance_data_path)
 
     df = (
@@ -182,12 +183,6 @@ def compute_from_source(yfinance_data_path: str | Path) -> pl.DataFrame:
             pl.col("rsi_126_steps").alias("rsi_6m"),
             pl.col("rsi_252_steps").alias("rsi_1y"),
         ]
-    )
-    logger.info(
-        "Returning candles_daily: %d rows × %d cols — %.1f MB",
-        result.height,
-        result.width,
-        result.estimated_size("mb"),
     )
     return result
 

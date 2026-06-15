@@ -10,7 +10,7 @@ def _setup() -> None:
     logs_dir = Path(__file__).parent.parent / "logs"
     logs_dir.mkdir(exist_ok=True)
 
-    fmt = logging.Formatter("%(asctime)s [%(filename)s:%(lineno)d] %(message)s")
+    fmt = logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
 
     file_handler = logging.FileHandler(logs_dir / f"startedat_{started_at}.log")
     file_handler.setFormatter(fmt)

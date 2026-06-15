@@ -31,7 +31,7 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
     parquet_path = root / "silver" / "sec_company_facts" / "sec_company_facts.parquet"
     tickers_path = root / "silver" / "company_tickers" / "company_tickers.parquet"
 
-    logger.info("Reading sec_company_facts from %s", parquet_path)
+    logger.debug("Using source: %s, %s", parquet_path, tickers_path)
 
     tickers = pl.read_parquet(tickers_path).select(
         pl.col("cik_str").alias("cik"), pl.col("ticker")
@@ -70,12 +70,6 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
         .drop("valid_until")
     )
 
-    logger.info(
-        "Returning sec_company_facts_padded: %d rows × %d cols — %.1f MB",
-        df.height,
-        df.width,
-        df.estimated_size("mb"),
-    )
     return df
 
 

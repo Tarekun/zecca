@@ -91,7 +91,7 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
 
     sec_dir = Path(sec_data_path)
     json_files = sorted(sec_dir.glob("*.json"))
-    logger.info("Processing %d SEC JSON files from %s", len(json_files), sec_dir)
+    logger.debug("Using source: %s", sec_dir)
 
     chunks = []
     for i in range(0, len(json_files), _CHUNK_SIZE):
@@ -100,24 +100,12 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
         for file_path in batch:
             rows.extend(_extract_rows(file_path))
         chunks.append(pl.from_dicts(rows, schema=_SCHEMA))
-        logger.info(
-            "Processed files %d–%d / %d",
-            i + 1,
-            min(i + _CHUNK_SIZE, len(json_files)),
-            len(json_files),
-        )
 
     df = pl.concat(chunks).with_columns(
         pl.col("end").str.to_date(format="%Y-%m-%d", strict=False),
         pl.col("filed").str.to_date(format="%Y-%m-%d", strict=False),
     )
 
-    logger.info(
-        "Returning sec_company_facts: %d rows × %d cols — %.1f MB",
-        df.height,
-        df.width,
-        df.estimated_size("mb"),
-    )
     return df
 
 
