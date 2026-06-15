@@ -1,6 +1,9 @@
 import telebot
 from dotenv import load_dotenv
 import os
+from etl.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def send_message_to_group(text: str):
@@ -17,6 +20,6 @@ def send_message_to_group(text: str):
             raise ValueError("Error: CHAT_ID env variable does not exist")
 
         bot.send_message(GROUP_CHAT_ID, text)
-        print("Message sended")
+        logger.info("Telegram message sent")
     except Exception as e:
-        print(f"Error could NOT send message: {e}")
+        logger.error("Could not send Telegram message: %s", e)

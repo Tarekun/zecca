@@ -1,9 +1,11 @@
 from contextlib import contextmanager
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 import os
-import sys
+from etl.logger import get_logger
 from etl.sources import ingest_ticker_daily, ingest_ticker_hourly
 from etl.telegrambot import send_message_to_group
+
+logger = get_logger(__name__)
 
 
 @contextmanager
@@ -29,24 +31,24 @@ def run_dbt_build(incremental: bool):
 
 def etl(config: dict):
     try:
-        print(f"Loaded configuration:\n{config}")
+        logger.info("Loaded configuration:\n%s", config)
 
-        print("Starting ticker daily ingestion...")
+        logger.info("Starting ticker daily ingestion...")
         ingest_ticker_daily(
             base_dir=config["ingestion_dir"], incremental=config["incremental"]
         )
-        print("Starting ticker hourly ingestion...")
+        logger.info("Starting ticker hourly ingestion...")
         ingest_ticker_hourly(
             base_dir=config["ingestion_dir"], incremental=config["incremental"]
         )
-        print("Ingestion completed successfully")
+        logger.info("Ingestion completed successfully")
 
-        print("Triggering dbt build...")
+        logger.info("Triggering dbt build...")
         run_dbt_build(config["incremental"])
-        print("Job completed successfully!")
+        logger.info("Job completed successfully!")
 
         send_message_to_group("Another day another dolla")
     except Exception as e:
-        print(f"Job failed with error: {e}", file=sys.stderr)
+        logger.error("Job failed with error: %s", e)
         send_message_to_group(f"Errore nell'ELT giornaliero: {e}")
         raise e
