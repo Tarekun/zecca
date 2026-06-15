@@ -26,7 +26,16 @@ class Model(ABC):
         pass
 
     def build(self) -> pl.DataFrame:
+        logger.info("Building from source data model %s", self.name)
         self._df = self._build()
+        logger.info(
+            "%s/%s built: %d rows × %d cols — %.1f MB",
+            self.layer,
+            self.name,
+            self._df.height,
+            self._df.width,
+            self._df.estimated_size("mb"),
+        )
         return self._df
 
     @property
@@ -91,10 +100,19 @@ class Model(ABC):
         """Instead of computing the dataset from sources, reads it from
         the current version on disk as it gets saved by self.store"""
 
+        logger.info("Loading from disk data model %s", self.name)
         layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
         if self.partitioning_columns:
             glob_path = str(layer_dir / "**" / "*.parquet")
             self._df = pl.scan_parquet(glob_path, hive_partitioning=True).collect()
         else:
             self._df = pl.read_parquet(layer_dir / f"{self.name}.parquet")
+        logger.info(
+            "%s/%s loaded: %d rows × %d cols — %.1f MB",
+            self.layer,
+            self.name,
+            self._df.height,
+            self._df.width,
+            self._df.estimated_size("mb"),
+        )
         return self._df

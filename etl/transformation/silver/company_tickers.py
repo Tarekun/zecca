@@ -27,7 +27,7 @@ def compute_from_source(raw_data_path: str | Path) -> pl.DataFrame:
     """
 
     file_path = Path(raw_data_path) / "company_tickers.json"
-    logger.info("Reading company_tickers from %s", file_path)
+    logger.debug("Using source: %s", file_path)
 
     data = json.loads(file_path.read_bytes())
     rows = [
@@ -44,7 +44,6 @@ def compute_from_source(raw_data_path: str | Path) -> pl.DataFrame:
         schema={"cik_str": pl.Int64, "ticker": pl.String, "title": pl.String},
     )
 
-    logger.info("Returning company_tickers: %d rows × %d cols", df.height, df.width)
     return df
 
 

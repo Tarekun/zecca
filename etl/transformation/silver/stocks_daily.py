@@ -11,6 +11,7 @@ logger = get_logger(__name__)
 
 
 def compute_from_source() -> pl.DataFrame:
+    logger.debug("Using source: CandlesDailySilver, SecCompanyFactsPaddedSilver")
     candles = CandlesDailySilver("").load_from_disk()
     sec = (
         SecCompanyFactsPaddedSilver()
@@ -25,12 +26,6 @@ def compute_from_source() -> pl.DataFrame:
         how="left",
     ).with_columns((pl.col("number_of_shares") * pl.col("open")).alias("evaluation"))
 
-    logger.info(
-        "Returning stocks_daily: %d rows × %d cols — %.1f MB",
-        df.height,
-        df.width,
-        df.estimated_size("mb"),
-    )
     return df
 
 

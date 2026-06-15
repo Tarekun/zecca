@@ -1,8 +1,11 @@
 from pathlib import Path
 import polars as pl
 
+from etl.logger import get_logger
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 from etl.transformation.model import Model
+
+logger = get_logger(__name__)
 
 
 class StocksDailyGold(Model):
@@ -14,4 +17,5 @@ class StocksDailyGold(Model):
         )
 
     def _build(self) -> pl.DataFrame:
+        logger.debug("Using source: StocksDailySilver")
         return StocksDailySilver().load_from_disk()
