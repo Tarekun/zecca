@@ -3,7 +3,7 @@ import math
 import polars as pl
 
 
-def safe_log_return(entry_value: pl.Expr, current_value: pl.Expr) -> pl.Expr:
+def log_return(entry_value: pl.Expr, current_value: pl.Expr) -> pl.Expr:
     """Compute the log return between two prices.
     Evaluates to `ln(entry_value / current_value)` when both prices are strictly
     positive; returns `None` otherwise to avoid taking the log of a non-positive
@@ -21,7 +21,7 @@ def safe_log_return(entry_value: pl.Expr, current_value: pl.Expr) -> pl.Expr:
     )
 
 
-def safe_return(current: pl.Expr, initial: pl.Expr) -> pl.Expr:
+def arithmatic_return(current: pl.Expr, initial: pl.Expr) -> pl.Expr:
     """Compute the percentage return: `(current - initial) / initial`.
     Returns ``None`` when *initial* is zero to guard against division by zero.
 
@@ -30,22 +30,6 @@ def safe_return(current: pl.Expr, initial: pl.Expr) -> pl.Expr:
     """
 
     return pl.when(initial != 0).then((current - initial) / initial).otherwise(None)
-
-
-# TODO deprecare
-def safe_div(numerator: pl.Expr, denominator: pl.Expr) -> pl.Expr:
-    """Divide two expressions, returning ``None`` when the denominator is zero.
-
-    Mirrors the ``safe_div`` macro in ``math.sql``.
-
-    Args:
-        numerator: Expression for the dividend.
-        denominator: Expression for the divisor.
-
-    Returns:
-        Polars expression yielding the quotient, or ``None`` when *denominator* is zero.
-    """
-    return pl.when(denominator != 0).then(numerator / denominator).otherwise(None)
 
 
 def sharpe_ratio(ret: pl.Expr, vol: pl.Expr) -> pl.Expr:

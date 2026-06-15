@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
+
 import polars as pl
 
 from etl.logger import get_logger
+from etl.transformation.model import Model
 
 logger = get_logger(__name__)
 
@@ -15,7 +17,6 @@ _SCHEMA = {
     "fp": pl.String,
     "val": pl.Int64,
 }
-
 _CHUNK_SIZE = 500
 
 
@@ -25,6 +26,7 @@ def _extract_rows(file_path: Path) -> list[dict]:
     Always returns at least one row. If any key in the nested path is absent the
     shares-specific columns are null so no file is silently dropped.
     """
+
     null_row = {
         "cik": None,
         "entity_name": None,
@@ -34,7 +36,6 @@ def _extract_rows(file_path: Path) -> list[dict]:
         "fp": None,
         "val": None,
     }
-
     try:
         data = json.loads(file_path.read_bytes())
     except Exception as e:
@@ -43,7 +44,6 @@ def _extract_rows(file_path: Path) -> list[dict]:
 
     cik = data.get("cik")
     entity_name = data.get("entityName")
-
     shares = (
         data.get("facts", {})
         .get("dei", {})
@@ -70,7 +70,7 @@ def _extract_rows(file_path: Path) -> list[dict]:
     ]
 
 
-def compute_sec_company_facts(sec_data_path: str | Path) -> pl.DataFrame:
+def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
     """Parse all SEC company facts JSON files under `sec_data_path` and return a
     flat DataFrame of EntityCommonStockSharesOutstanding entries.
 
@@ -88,14 +88,15 @@ def compute_sec_company_facts(sec_data_path: str | Path) -> pl.DataFrame:
         - ``fp``          – fiscal period (Q1/Q2/Q3/Q4/FY …)
         - ``val``         – shares outstanding
     """
+
     sec_dir = Path(sec_data_path)
     json_files = sorted(sec_dir.glob("*.json"))
     logger.info("Processing %d SEC JSON files from %s", len(json_files), sec_dir)
 
-    chunks: list[pl.DataFrame] = []
+    chunks = []
     for i in range(0, len(json_files), _CHUNK_SIZE):
         batch = json_files[i : i + _CHUNK_SIZE]
-        rows: list[dict] = []
+        rows = []
         for file_path in batch:
             rows.extend(_extract_rows(file_path))
         chunks.append(pl.from_dicts(rows, schema=_SCHEMA))
@@ -112,9 +113,20 @@ def compute_sec_company_facts(sec_data_path: str | Path) -> pl.DataFrame:
     )
 
     logger.info(
-        "Returning shares_outstanding: %d rows × %d cols — %.1f MB",
+        "Returning sec_company_facts: %d rows × %d cols — %.1f MB",
         df.height,
         df.width,
         df.estimated_size("mb"),
     )
     return df
+
+
+class SecCompanyFactsSilver(Model):
+    def __init__(self, sec_data_path: str | Path | None = None) -> None:
+        super().__init__(name="sec_company_facts", layer="silver")
+        self.sec_data_path = sec_data_path
+
+    def _build(self) -> pl.DataFrame:
+        if self.sec_data_path is None:
+            raise ValueError("sec_data_path is required to build SecCompanyFactsSilver")
+        return compute_from_source(self.sec_data_path)

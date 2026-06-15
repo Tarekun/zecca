@@ -9,18 +9,19 @@ import polars as pl
 from etl.transformation.indicators import (
     relative_strength_index,
     rolling_avg,
-    safe_log_return,
-    safe_return,
+    log_return,
+    arithmatic_return,
     sharpe_ratio,
     volatility,
 )
 from etl.transformation.utils import load_ticker_daily
+from etl.transformation.model import Model
 
 # Lookback periods in trading days, matching candles_enhanced([1, 5, 14, 20, 30, 62, 126, 252])
 _LOOKBACKS = [1, 5, 14, 20, 30, 62, 126, 252]
 
 
-def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
+def compute_from_source(yfinance_data_path: str | Path) -> pl.DataFrame:
     """Read ticker_daily parquet data and compute the full candles_daily indicator set.
 
     Replicates the logic of the dbt model ``silver/candles_daily.sql`` and its
@@ -43,12 +44,6 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
         - Sharpe ratio: ``sharpe_1_steps_1d/1w/1m/30_steps/1q/6m/1y``
         - RSI (14-step): ``rsi``, ``overbought``, ``oversold``
         - RSI (other periods): ``rsi_1d/1w/1m/30_steps/1q/6m/1y``
-
-    Known limitations:
-
-    - ``volatility_1_steps_1d`` and ``sharpe_1_steps_1d`` are always null.
-      A window of 1 row can never satisfy ``min_samples=2``, so the sample
-      standard deviation is undefined for the 1-day lookback.
     """
     df = load_ticker_daily(yfinance_data_path)
 
@@ -64,7 +59,7 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
         (pl.col("close") - pl.col("close").shift(1).over("symbol")).alias(
             "_price_diff"
         ),
-        safe_log_return(
+        log_return(
             pl.col("close"),
             pl.col("close").shift(1).over("symbol"),
         ).alias("_return"),
@@ -76,11 +71,11 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
             expr
             for steps in _LOOKBACKS
             for expr in (
-                safe_log_return(
+                log_return(
                     pl.col("close"),
                     pl.col("close").shift(steps).over("symbol"),
                 ).alias(f"log_return_{steps}_steps"),
-                safe_return(
+                arithmatic_return(
                     pl.col("close"),
                     pl.col("close").shift(steps).over("symbol"),
                 ).alias(f"return_{steps}_steps"),
@@ -195,3 +190,16 @@ def compute_candles_daily(yfinance_data_path: str | Path) -> pl.DataFrame:
         result.estimated_size("mb"),
     )
     return result
+
+
+class CandlesDailySilver(Model):
+    def __init__(self, yfinance_data_path: str | Path) -> None:
+        super().__init__(
+            name="candles_daily",
+            layer="silver",
+            partitioning_columns=["year", "month"],
+        )
+        self.yfinance_data_path = yfinance_data_path
+
+    def _build(self) -> pl.DataFrame:
+        return compute_from_source(self.yfinance_data_path)

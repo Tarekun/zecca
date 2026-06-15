@@ -9,8 +9,8 @@ sys.path.append(str(Path(__file__).parents[2]))
 from etl.transformation.indicators import (
     relative_strength_index,
     rolling_avg,
-    safe_log_return,
-    safe_return,
+    log_return,
+    arithmatic_return,
     sharpe_ratio,
     volatility,
 )
@@ -59,10 +59,10 @@ class TestSafeLogReturn:
         """First row per symbol must be null: no prior price exists to compute a return."""
         aapl = sample_df.filter(pl.col("symbol") == "AAPL").sort("timeframe")
         result = aapl.with_columns(
-            safe_log_return(pl.col("close"), pl.col("close").shift(1)).alias("lr")
+            log_return(pl.col("close"), pl.col("close").shift(1)).alias("lr")
         )
         assert result["lr"][0] is None, (
-            "safe_log_return at the first row must be null because shift(1) produces null "
+            "log_return at the first row must be null because shift(1) produces null "
             "and the formula returns null when either input is non-positive or missing"
         )
 
@@ -70,20 +70,20 @@ class TestSafeLogReturn:
         """log return at row 1 must equal ln(close[1] / close[0])."""
         aapl = sample_df.filter(pl.col("symbol") == "AAPL").sort("timeframe")
         result = aapl.with_columns(
-            safe_log_return(pl.col("close"), pl.col("close").shift(1)).alias("lr")
+            log_return(pl.col("close"), pl.col("close").shift(1)).alias("lr")
         )
         c0, c1 = aapl["close"][0], aapl["close"][1]
         expected = math.log(c1 / c0)
         actual = result["lr"][1]
         assert actual == pytest.approx(expected, rel=1e-9), (
-            f"safe_log_return at row 1: expected ln({c1:.4f}/{c0:.4f}) = {expected:.8f}, "
+            f"log_return at row 1: expected ln({c1:.4f}/{c0:.4f}) = {expected:.8f}, "
             f"got {actual:.8f}"
         )
 
     def test_null_for_nonpositive(self):
         """Result must be null when entry_value or current_value is zero or negative."""
         df = pl.DataFrame({"a": [10.0, 0.0, -5.0, 10.0], "b": [10.0, 10.0, 10.0, 0.0]})
-        result = df.with_columns(safe_log_return(pl.col("a"), pl.col("b")).alias("lr"))
+        result = df.with_columns(log_return(pl.col("a"), pl.col("b")).alias("lr"))
         assert result["lr"][0] == pytest.approx(0.0), "ln(10/10) should be 0.0"
         assert result["lr"][1] is None, "entry_value = 0 should yield null"
         assert result["lr"][2] is None, "entry_value < 0 should yield null"
@@ -95,10 +95,10 @@ class TestSafeReturn:
         """First row per symbol must be null: shift(1) yields null, so initial = null != 0 check fails."""
         aapl = sample_df.filter(pl.col("symbol") == "AAPL").sort("timeframe")
         result = aapl.with_columns(
-            safe_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
+            arithmatic_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
         )
         assert result["ret"][0] is None, (
-            "safe_return at the first row must be null because the lagged close is null "
+            "arithmatic_return at the first row must be null because the lagged close is null "
             "and the formula propagates null through the arithmetic"
         )
 
@@ -106,24 +106,28 @@ class TestSafeReturn:
         """Percentage return at row 1 must equal (close[1] - close[0]) / close[0]."""
         aapl = sample_df.filter(pl.col("symbol") == "AAPL").sort("timeframe")
         result = aapl.with_columns(
-            safe_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
+            arithmatic_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
         )
         c0, c1 = aapl["close"][0], aapl["close"][1]
         expected = (c1 - c0) / c0
         actual = result["ret"][1]
         assert actual == pytest.approx(expected, rel=1e-9), (
-            f"safe_return at row 1: expected ({c1:.4f} - {c0:.4f}) / {c0:.4f} = {expected:.8f}, "
+            f"arithmatic_return at row 1: expected ({c1:.4f} - {c0:.4f}) / {c0:.4f} = {expected:.8f}, "
             f"got {actual:.8f}"
         )
 
     def test_null_for_zero_initial(self):
         """Result must be null when the initial price is zero (avoids division by zero)."""
         df = pl.DataFrame({"curr": [105.0, 100.0], "init": [100.0, 0.0]})
-        result = df.with_columns(safe_return(pl.col("curr"), pl.col("init")).alias("ret"))
-        assert result["ret"][0] == pytest.approx(0.05), "(105 - 100) / 100 should be 0.05"
+        result = df.with_columns(
+            arithmatic_return(pl.col("curr"), pl.col("init")).alias("ret")
+        )
+        assert result["ret"][0] == pytest.approx(
+            0.05
+        ), "(105 - 100) / 100 should be 0.05"
         assert (
             result["ret"][1] is None
-        ), "safe_return with initial = 0 must yield null to guard against division by zero"
+        ), "arithmatic_return with initial = 0 must yield null to guard against division by zero"
 
 
 class TestSharpeRatio:
@@ -192,7 +196,7 @@ class TestVolatility:
         """
         aapl = sample_df.filter(pl.col("symbol") == "AAPL").sort("timeframe")
         ret = aapl.with_columns(
-            safe_log_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
+            log_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
         )
         result = ret.with_columns(volatility(pl.col("ret"), 2).alias("vol"))
         assert result["vol"][0] is None, (
@@ -208,7 +212,7 @@ class TestVolatility:
         """Volatility at row 2 (first window with 2 non-null returns) equals the sample std dev."""
         aapl = sample_df.filter(pl.col("symbol") == "AAPL").sort("timeframe")
         ret = aapl.with_columns(
-            safe_log_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
+            log_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
         )
         result = ret.with_columns(volatility(pl.col("ret"), 2).alias("vol"))
         r1, r2 = ret["ret"][1], ret["ret"][2]
@@ -223,7 +227,7 @@ class TestVolatility:
         """All non-null volatility values must be non-negative (it is a std dev)."""
         aapl = sample_df.filter(pl.col("symbol") == "AAPL").sort("timeframe")
         ret = aapl.with_columns(
-            safe_log_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
+            log_return(pl.col("close"), pl.col("close").shift(1)).alias("ret")
         )
         result = ret.with_columns(volatility(pl.col("ret"), 20).alias("vol"))
         non_null = result.filter(pl.col("vol").is_not_null())["vol"]
@@ -265,17 +269,19 @@ class TestRelativeStrengthIndex:
         )
         assert (
             finite_rsi <= 100
-        ).all(), (
-            f"RSI must be <= 100 for all finite values; max found: {finite_rsi.max():.4f}"
-        )
+        ).all(), f"RSI must be <= 100 for all finite values; max found: {finite_rsi.max():.4f}"
 
     def test_all_gains_is_100(self):
         """RSI must be exactly 100 when every price change in the window is positive."""
         closes = [float(100 + i) for i in range(20)]
         df = (
             pl.DataFrame({"close": closes})
-            .with_columns((pl.col("close") - pl.col("close").shift(1)).alias("price_diff"))
-            .with_columns(relative_strength_index(pl.col("price_diff"), 14).alias("rsi"))
+            .with_columns(
+                (pl.col("close") - pl.col("close").shift(1)).alias("price_diff")
+            )
+            .with_columns(
+                relative_strength_index(pl.col("price_diff"), 14).alias("rsi")
+            )
         )
         for i, val in enumerate(df["rsi"].tail(5).to_list()):
             assert val == pytest.approx(100.0), (
@@ -288,8 +294,12 @@ class TestRelativeStrengthIndex:
         closes = [float(200 - i) for i in range(20)]
         df = (
             pl.DataFrame({"close": closes})
-            .with_columns((pl.col("close") - pl.col("close").shift(1)).alias("price_diff"))
-            .with_columns(relative_strength_index(pl.col("price_diff"), 14).alias("rsi"))
+            .with_columns(
+                (pl.col("close") - pl.col("close").shift(1)).alias("price_diff")
+            )
+            .with_columns(
+                relative_strength_index(pl.col("price_diff"), 14).alias("rsi")
+            )
         )
         for i, val in enumerate(df["rsi"].tail(5).to_list()):
             assert val == pytest.approx(0.0), (
