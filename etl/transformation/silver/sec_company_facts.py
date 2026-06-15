@@ -12,29 +12,35 @@ _SCHEMA = {
     "cik": pl.Int64,
     "entity_name": pl.String,
     "source_file": pl.String,
-    "end": pl.String,
-    "filed": pl.String,
-    "fp": pl.String,
-    "val": pl.Int64,
+    "shares_outstanding_end": pl.String,
+    "shares_outstanding_filed": pl.String,
+    "shares_outstanding_fp": pl.String,
+    "shares_outstanding": pl.Int64,
+    "public_float_end": pl.String,
+    "public_float_filed": pl.String,
+    "non_affiliate_valuation": pl.Int128,
 }
 _CHUNK_SIZE = 500
 
 
 def _extract_rows(file_path: Path) -> list[dict]:
-    """Extract EntityCommonStockSharesOutstanding rows from one SEC JSON file.
+    """Extract EntityCommonStockSharesOutstanding and EntityPublicFloat rows from one SEC JSON file.
 
     Always returns at least one row. If any key in the nested path is absent the
-    shares-specific columns are null so no file is silently dropped.
+    metric-specific columns are null so no file is silently dropped.
     """
 
     null_row = {
         "cik": None,
         "entity_name": None,
         "source_file": file_path.name,
-        "end": None,
-        "filed": None,
-        "fp": None,
-        "val": None,
+        "shares_outstanding_end": None,
+        "shares_outstanding_filed": None,
+        "shares_outstanding_fp": None,
+        "shares_outstanding": None,
+        "public_float_end": None,
+        "public_float_filed": None,
+        "non_affiliate_valuation": None,
     }
     try:
         data = json.loads(file_path.read_bytes())
@@ -44,35 +50,58 @@ def _extract_rows(file_path: Path) -> list[dict]:
 
     cik = data.get("cik")
     entity_name = data.get("entityName")
-    shares = (
-        data.get("facts", {})
-        .get("dei", {})
-        .get("EntityCommonStockSharesOutstanding", {})
-        .get("units", {})
-        .get("shares")
-        or []
+    common = {"cik": cik, "entity_name": entity_name, "source_file": file_path.name}
+
+    dei = data.get("facts", {}).get("dei", {})
+
+    shares_entries = (
+        dei.get("EntityCommonStockSharesOutstanding", {}).get("units", {}).get("shares") or []
+    )
+    float_entries = (
+        dei.get("EntityPublicFloat", {}).get("units", {}).get("USD") or []
     )
 
-    if not shares:
+    shares_rows = [
+        {
+            **common,
+            "shares_outstanding_end": e.get("end"),
+            "shares_outstanding_filed": e.get("filed"),
+            "shares_outstanding_fp": e.get("fp"),
+            "shares_outstanding": e.get("val"),
+            "public_float_end": None,
+            "public_float_filed": None,
+            "non_affiliate_valuation": None,
+        }
+        for e in shares_entries
+    ]
+
+    float_rows = [
+        {
+            **common,
+            "shares_outstanding_end": None,
+            "shares_outstanding_filed": None,
+            "shares_outstanding_fp": None,
+            "shares_outstanding": None,
+            "public_float_end": e.get("end"),
+            "public_float_filed": e.get("filed"),
+            "non_affiliate_valuation": e.get("val"),
+        }
+        for e in float_entries
+    ]
+
+    rows = shares_rows + float_rows
+    if not rows:
         return [{**null_row, "cik": cik, "entity_name": entity_name}]
 
-    return [
-        {
-            "cik": cik,
-            "entity_name": entity_name,
-            "source_file": file_path.name,
-            "end": entry.get("end"),
-            "filed": entry.get("filed"),
-            "fp": entry.get("fp"),
-            "val": entry.get("val"),
-        }
-        for entry in shares
-    ]
+    return rows
 
 
 def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
     """Parse all SEC company facts JSON files under `sec_data_path` and return a
-    flat DataFrame of EntityCommonStockSharesOutstanding entries.
+    flat DataFrame of EntityCommonStockSharesOutstanding and EntityPublicFloat entries.
+
+    Each metric's entries are represented as separate rows; metric-specific columns
+    are null on rows belonging to the other metric.
 
     Files are processed sequentially in chunks so only a small window of JSON
     data is held in memory at any time.
@@ -80,13 +109,16 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
     Returns:
         Eager DataFrame with columns:
 
-        - ``cik``         – company CIK (integer)
-        - ``entity_name`` – from entityName
-        - ``source_file`` – originating filename
-        - ``end``         – period end date
-        - ``filed``       – filing date
-        - ``fp``          – fiscal period (Q1/Q2/Q3/Q4/FY …)
-        - ``val``         – shares outstanding
+        - ``cik``                     – company CIK (integer)
+        - ``entity_name``             – from entityName
+        - ``source_file``             – originating filename
+        - ``shares_outstanding_end``  – period end date for shares outstanding
+        - ``shares_outstanding_filed``– filing date for shares outstanding
+        - ``shares_outstanding_fp``   – fiscal period for shares outstanding
+        - ``shares_outstanding``      – shares outstanding count
+        - ``public_float_end``        – period end date for public float
+        - ``public_float_filed``      – filing date for public float
+        - ``non_affiliate_valuation`` – public float value in USD
     """
 
     sec_dir = Path(sec_data_path)
@@ -102,8 +134,10 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
         chunks.append(pl.from_dicts(rows, schema=_SCHEMA))
 
     df = pl.concat(chunks).with_columns(
-        pl.col("end").str.to_date(format="%Y-%m-%d", strict=False),
-        pl.col("filed").str.to_date(format="%Y-%m-%d", strict=False),
+        pl.col("shares_outstanding_end").str.to_date(format="%Y-%m-%d", strict=False),
+        pl.col("shares_outstanding_filed").str.to_date(format="%Y-%m-%d", strict=False),
+        pl.col("public_float_end").str.to_date(format="%Y-%m-%d", strict=False),
+        pl.col("public_float_filed").str.to_date(format="%Y-%m-%d", strict=False),
     )
 
     return df
