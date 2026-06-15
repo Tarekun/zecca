@@ -4,7 +4,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DATAPLATFORM_ROOT
 
 logger = get_logger(__name__)
 
@@ -96,12 +96,59 @@ def _extract_rows(file_path: Path) -> list[dict]:
     return rows
 
 
-def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
-    """Parse all SEC company facts JSON files under `sec_data_path` and return a
+def _enrich_with_float_price(
+    df: pl.DataFrame, dataplatform_root: Path
+) -> pl.DataFrame:
+    """Join each public float entry with the opening price on its end date and
+    compute ``estimated_float_shares = non_affiliate_valuation / open``.
+
+    Rows that have no matching ticker or no candle on that date get a null
+    ``estimated_float_shares``.  The ticker column used for the join is not
+    kept in the output.
+    """
+    tickers_path = dataplatform_root / "silver" / "company_tickers" / "company_tickers.parquet"
+    candles_glob = str(dataplatform_root / "silver" / "candles_daily" / "**" / "*.parquet")
+
+    if not tickers_path.exists():
+        logger.warning("company_tickers not found at %s — estimated_float_shares will be null", tickers_path)
+        return df.with_columns(pl.lit(None, dtype=pl.Float64).alias("estimated_float_shares"))
+
+    tickers = pl.read_parquet(tickers_path).select(
+        pl.col("cik_str").alias("cik"), pl.col("ticker")
+    )
+
+    prices = (
+        pl.scan_parquet(candles_glob, hive_partitioning=True)
+        .select(["timeframe", "symbol", "open"])
+        .collect()
+        .rename({"timeframe": "public_float_end", "symbol": "ticker"})
+    )
+
+    return (
+        df.join(tickers, on="cik", how="left")
+        .join(prices, on=["ticker", "public_float_end"], how="left")
+        .with_columns(
+            (pl.col("non_affiliate_valuation").cast(pl.Float64) / pl.col("open"))
+            .alias("estimated_float_shares")
+        )
+        .drop(["ticker", "open"])
+    )
+
+
+def compute_from_source(
+    sec_data_path: str | Path,
+    dataplatform_root: str | Path | None = None,
+) -> pl.DataFrame:
+    """Parse all SEC company facts JSON files under ``sec_data_path`` and return a
     flat DataFrame of EntityCommonStockSharesOutstanding and EntityPublicFloat entries.
 
     Each metric's entries are represented as separate rows; metric-specific columns
     are null on rows belonging to the other metric.
+
+    When ``dataplatform_root`` is provided the function also reads ``company_tickers``
+    and ``candles_daily`` from the silver layer to compute ``estimated_float_shares``
+    (``non_affiliate_valuation`` divided by the opening price on the public float end
+    date).  If either dependency is unavailable the column is present but null.
 
     Files are processed sequentially in chunks so only a small window of JSON
     data is held in memory at any time.
@@ -109,16 +156,17 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
     Returns:
         Eager DataFrame with columns:
 
-        - ``cik``                     – company CIK (integer)
-        - ``entity_name``             – from entityName
-        - ``source_file``             – originating filename
-        - ``shares_outstanding_end``  – period end date for shares outstanding
-        - ``shares_outstanding_filed``– filing date for shares outstanding
-        - ``shares_outstanding_fp``   – fiscal period for shares outstanding
-        - ``shares_outstanding``      – shares outstanding count
-        - ``public_float_end``        – period end date for public float
-        - ``public_float_filed``      – filing date for public float
-        - ``non_affiliate_valuation`` – public float value in USD
+        - ``cik``                      – company CIK (integer)
+        - ``entity_name``              – from entityName
+        - ``source_file``              – originating filename
+        - ``shares_outstanding_end``   – period end date for shares outstanding
+        - ``shares_outstanding_filed`` – filing date for shares outstanding
+        - ``shares_outstanding_fp``    – fiscal period for shares outstanding
+        - ``shares_outstanding``       – shares outstanding count
+        - ``public_float_end``         – period end date for public float
+        - ``public_float_filed``       – filing date for public float
+        - ``non_affiliate_valuation``  – public float value in USD
+        - ``estimated_float_shares``   – non_affiliate_valuation / open price on public_float_end
     """
 
     sec_dir = Path(sec_data_path)
@@ -140,15 +188,25 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
         pl.col("public_float_filed").str.to_date(format="%Y-%m-%d", strict=False),
     )
 
+    root = Path(dataplatform_root) if dataplatform_root is not None else None
+    if root is None:
+        root = Path(DATAPLATFORM_ROOT)
+    df = _enrich_with_float_price(df, root)
+
     return df
 
 
 class SecCompanyFactsSilver(Model):
-    def __init__(self, sec_data_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        sec_data_path: str | Path | None = None,
+        dataplatform_root: str | Path | None = None,
+    ) -> None:
         super().__init__(name="sec_company_facts", layer="silver")
         self.sec_data_path = sec_data_path
+        self.dataplatform_root = dataplatform_root or DATAPLATFORM_ROOT
 
     def _build(self) -> pl.DataFrame:
         if self.sec_data_path is None:
             raise ValueError("sec_data_path is required to build SecCompanyFactsSilver")
-        return compute_from_source(self.sec_data_path)
+        return compute_from_source(self.sec_data_path, self.dataplatform_root)

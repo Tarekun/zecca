@@ -18,7 +18,7 @@ def compute_with_polars() -> pl.DataFrame:
     sec = (
         SecCompanyFactsPaddedSilver()
         .load_from_disk()
-        .select(["ticker", "reference_date", "number_of_shares"])
+        .select(["ticker", "reference_date", "shares_outstanding", "estimated_float_shares"])
     )
 
     df = candles.join(
@@ -26,7 +26,7 @@ def compute_with_polars() -> pl.DataFrame:
         left_on=["symbol", "timeframe"],
         right_on=["ticker", "reference_date"],
         how="left",
-    ).with_columns((pl.col("number_of_shares") * pl.col("open")).alias("evaluation"))
+    ).with_columns((pl.col("shares_outstanding") * pl.col("open")).alias("evaluation"))
 
     return df
 

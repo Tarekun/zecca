@@ -69,7 +69,8 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
         - ``reference_date``          – calendar date (Date)
         - ``shares_outstanding_fp``   – fiscal period of the active shares report
         - ``shares_outstanding``      – shares outstanding on ``reference_date``
-        - ``non_affiliate_valuation`` – public float in USD on ``reference_date``
+        - ``non_affiliate_valuation``  – public float in USD on ``reference_date``
+        - ``estimated_float_shares``   – non_affiliate_valuation / open price on the filing date
     """
 
     root = Path(dataplatform_root)
@@ -97,7 +98,7 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
     )
 
     float_padded = _pad_series(
-        df.select(["cik", "public_float_end", "non_affiliate_valuation"]),
+        df.select(["cik", "public_float_end", "non_affiliate_valuation", "estimated_float_shares"]),
         end_col="public_float_end",
         today=today,
     )
@@ -126,6 +127,7 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
             "shares_outstanding_fp",
             "shares_outstanding",
             "non_affiliate_valuation",
+            "estimated_float_shares",
         ])
         .sort(["cik", "reference_date"])
     )
