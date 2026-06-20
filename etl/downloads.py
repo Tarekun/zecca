@@ -7,6 +7,11 @@ from etl.logger import get_logger
 logger = get_logger(__name__)
 
 
+# TODO in caso di IP ban mettere qualcosa di legit qua
+USER_AGENT = "Zecca s@a.net"
+RAW_LAYER = "./dataplatform/raw"
+
+
 def download_and_unzip(url: str, dest_path: str, user_agent: str) -> None:
     os.makedirs(dest_path, exist_ok=True)
 
@@ -35,9 +40,11 @@ def download_and_unzip(url: str, dest_path: str, user_agent: str) -> None:
                 pct = downloaded / total_size * 100
                 if pct - last_logged_pct >= 10:
                     last_logged_pct = (pct // 10) * 10
-                    logger.info(f"{last_logged_pct:.0f}% — {downloaded / (1024 * 1024):.1f} MB")
+                    logger.debug(
+                        f"{last_logged_pct:.0f}% — {downloaded / (1024 * 1024):.1f} MBi"
+                    )
 
-    logger.info(f"Download complete: {downloaded / (1024 * 1024):.1f} MB")
+    logger.info(f"Download complete: {downloaded / (1024 * 1024):.1f} MBi")
 
     zip_bytes.seek(0)
 
@@ -50,25 +57,22 @@ def download_and_unzip(url: str, dest_path: str, user_agent: str) -> None:
 
     logger.info(f"Extraction completed: {dest_path}")
 
-    
+
 def download_company_facts() -> None:
     url = "https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip"
-    dest_path = "dataplatform/raw/companyfacts"
-    user_agent = "Zecca ***" # scegliere una mail da sostituire con ***
     logger.info("Starting download and extraction of company facts...")
 
-    download_and_unzip(url, dest_path, user_agent)
+    download_and_unzip(url, f"{RAW_LAYER}/sec", USER_AGENT)
+
 
 def download_sec_tickers() -> None:
-    dest_path = "dataplatform/raw/sec"
-    os.makedirs(dest_path, exist_ok=True)
-
-    headers = {"User-Agent": "Zecca ***"} # scegliere una mail da sostituire con ***
+    os.makedirs(RAW_LAYER, exist_ok=True)
+    headers = {"User-Agent": USER_AGENT}  # scegliere una mail da sostituire con ***
     r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers)
     r.raise_for_status()
     data = r.content
 
-    dest_file = os.path.join(dest_path, "company_tickers.json")
+    dest_file = os.path.join(RAW_LAYER, "company_tickers.json")
     with open(dest_file, "wb") as f:
         f.write(data)
 
