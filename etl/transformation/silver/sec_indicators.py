@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-
 import polars as pl
 
 from etl.logger import get_logger
@@ -73,7 +72,7 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
         pl.concat(chunks)
         .group_by(["namespace", "indicator", "label", "description"])
         .agg(pl.col("cik").n_unique().alias("cik_count"))
-        .sort(["namespace", "cik_count"], descending=[False, True])
+        .sort(["cik_count"], descending=[True])
     )
 
 

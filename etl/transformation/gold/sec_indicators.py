@@ -1,5 +1,4 @@
 from pathlib import Path
-
 import polars as pl
 
 from etl.logger import get_logger
