@@ -1,4 +1,5 @@
 import gc
+import multiprocessing
 from abc import ABC, abstractmethod
 from pathlib import Path
 import polars as pl
@@ -98,6 +99,26 @@ class Model(ABC):
         load_from_disk() is called again."""
         self._df = None
         gc.collect()
+
+    def build_store_free(self):
+        """Runs build(), store(), and free() in a dedicated subprocess.
+
+        Arrow-backed allocators (jemalloc/mimalloc) hold freed pages in their
+        own pool, so RSS stays high even after free(). A subprocess exit forces
+        the OS to reclaim all memory unconditionally, bypassing the allocator."""
+
+        def _run(model):
+            model.build()
+            model.store()
+            model.free()
+
+        proc = multiprocessing.Process(target=_run, args=(self,))
+        proc.start()
+        proc.join()
+        if proc.exitcode != 0:
+            raise RuntimeError(
+                f"{self.layer}/{self.name} subprocess exited with code {proc.exitcode}"
+            )
 
     def load_from_disk(self) -> pl.DataFrame:
         """Instead of computing the dataset from sources, reads it from
