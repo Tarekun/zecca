@@ -1,0 +1,79 @@
+{
+  "uid": "zecca-candles",
+  "title": "Zecca — Candlestick PoC",
+  "tags": ["zecca", "poc", "candlestick"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": { "from": "now-1y", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "symbol",
+        "label": "Symbol",
+        "type": "custom",
+        "query": "AAPL,MSFT,TSLA",
+        "current": { "text": "AAPL", "value": "AAPL" },
+        "options": [
+          { "text": "AAPL", "value": "AAPL", "selected": true },
+          { "text": "MSFT", "value": "MSFT", "selected": false },
+          { "text": "TSLA", "value": "TSLA", "selected": false }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "candlestick",
+      "title": "$symbol — Daily OHLC",
+      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "axisPlacement": "auto" } },
+        "overrides": []
+      },
+      "options": {
+        "mode": "candles",
+        "candleStyle": "candles",
+        "colorStrategy": "open-close",
+        "colors": { "up": "green", "down": "red" },
+        "includeAllFields": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+          "editorMode": "code",
+          "format": 1,
+          "rawSql": "SELECT timeframe AS \"time\", open, high, low, close, volume FROM read_parquet('/data/candles_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "$symbol — Volume",
+      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 0 },
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "showLegend": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+          "editorMode": "code",
+          "format": 1,
+          "rawSql": "SELECT timeframe AS \"time\", volume FROM read_parquet('/data/candles_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
+        }
+      ]
+    }
+  ]
+}
