@@ -137,6 +137,7 @@ def compute_from_source() -> pl.DataFrame:
 class SecCompanyFactsPaddedSilver(Model):
     def __init__(self) -> None:
         super().__init__(name="sec_company_facts_padded", layer="silver")
+        self.configure_dependencies([SecCompanyFactsSilver])
 
     def _build(self) -> pl.DataFrame:
         return compute_from_source()
