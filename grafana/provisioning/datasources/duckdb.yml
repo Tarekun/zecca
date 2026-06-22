@@ -1,12 +1,4 @@
 apiVersion: 1
-
-# DuckDB datasource running in in-memory mode (empty `path`). Queries read the
-# parquet files directly with DuckDB's read_parquet(), so this PoC demonstrates
-# Grafana reading Parquet with no intermediate database.
-#
-# To point at the project's real DuckDB store instead, set
-#   jsonData.path: /data/storage.duckdb
-# and mount dataplatform/storage.duckdb to /data/storage.duckdb in docker-compose.yml.
 datasources:
   - name: DuckDB
     uid: duckdb-zecca
