@@ -13,7 +13,7 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
       - ./provisioning:/etc/grafana/provisioning:ro
-      - ./data:/data:ro
+      - ../dataplatform:/data:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
       interval: 10s

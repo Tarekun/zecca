@@ -12,14 +12,16 @@
       {
         "name": "symbol",
         "label": "Symbol",
-        "type": "custom",
-        "query": "AAPL,MSFT,TSLA",
-        "current": { "text": "AAPL", "value": "AAPL" },
-        "options": [
-          { "text": "AAPL", "value": "AAPL", "selected": true },
-          { "text": "MSFT", "value": "MSFT", "selected": false },
-          { "text": "TSLA", "value": "TSLA", "selected": false }
-        ]
+        "type": "query",
+        "datasource": {
+          "type": "motherduck-duckdb-datasource",
+          "uid": "duckdb-zecca"
+        },
+        "query": "SELECT DISTINCT symbol FROM read_parquet('/data/gold/stocks_daily/**/*.parquet', hive_partitioning = true) ORDER BY symbol",
+        "refresh": 1,
+        "sort": 1,
+        "current": {},
+        "options": []
       }
     ]
   },
@@ -28,7 +30,10 @@
       "id": 1,
       "type": "candlestick",
       "title": "$symbol — Daily OHLC",
-      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "duckdb-zecca"
+      },
       "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
       "fieldConfig": {
         "defaults": { "custom": { "axisPlacement": "auto" } },
@@ -44,10 +49,13 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "duckdb-zecca"
+          },
           "editorMode": "code",
           "format": 1,
-          "rawSql": "SELECT timeframe AS \"time\", open, high, low, close, volume FROM read_parquet('/data/candles_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
+          "rawSql": "SELECT timeframe AS \"time\", open, high, low, close, volume FROM read_parquet('/data/gold/stocks_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
         }
       ]
     },
@@ -55,7 +63,10 @@
       "id": 2,
       "type": "timeseries",
       "title": "$symbol — Volume",
-      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "duckdb-zecca"
+      },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
       "fieldConfig": {
         "defaults": {
@@ -68,10 +79,13 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "motherduck-duckdb-datasource", "uid": "duckdb-zecca" },
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "duckdb-zecca"
+          },
           "editorMode": "code",
           "format": 1,
-          "rawSql": "SELECT timeframe AS \"time\", volume FROM read_parquet('/data/candles_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
+          "rawSql": "SELECT timeframe AS \"time\", volume FROM read_parquet('/data/gold/stocks_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
         }
       ]
     }
