@@ -1,0 +1,21 @@
+services:
+  grafana:
+    image: grafana/grafana:11.6.0-ubuntu
+    container_name: zecca-grafana-poc
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: motherduck-duckdb-datasource
+      GF_INSTALL_PLUGINS: "https://github.com/motherduckdb/grafana-duckdb-datasource/releases/download/v0.4.3/motherduck-duckdb-datasource-0.4.3.zip;motherduck-duckdb-datasource"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ../dataplatform:/data:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12

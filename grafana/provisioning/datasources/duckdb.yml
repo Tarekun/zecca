@@ -1,0 +1,11 @@
+apiVersion: 1
+datasources:
+  - name: DuckDB
+    uid: duckdb-zecca
+    type: motherduck-duckdb-datasource
+    access: proxy
+    isDefault: true
+    jsonData:
+      path: ""
+    version: 1
+    editable: true
