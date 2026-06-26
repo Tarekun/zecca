@@ -11,6 +11,7 @@ logger = get_logger(__name__)
 class SecIndicatorsGold(Model):
     def __init__(self):
         super().__init__(name="sec_indicators", layer="gold")
+        self.configure_dependencies([SecIndicatorsSilver])
 
     def _build(self) -> pl.DataFrame:
         logger.debug("Using source: SecIndicatorsSilver")

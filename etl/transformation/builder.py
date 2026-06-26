@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from etl.logger import get_logger
-from etl.transformation.model import DATAPLATFORM_ROOT
+from etl.transformation.model import DATAPLATFORM_ROOT, build_execution_plan
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
@@ -47,25 +47,23 @@ def _backup_transformed():
 def build_silver():
     """Build all silver layer models"""
 
-    for model in [
+    for model in build_execution_plan([
         CompanyTickersSilver(f"{DATAPLATFORM_ROOT}/raw/"),
         CandlesDailySilver(f"{DATAPLATFORM_ROOT}/raw/"),
         SecCompanyFactsSilver(f"{DATAPLATFORM_ROOT}/raw/sec/"),
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
-    ]:
-        model.build()
-        model.store()
-        model.free()
+    ]):
+        model.build_store_free()
 
 
 def build_gold():
     """Build all gold layer models, assuming silver models have been processed"""
 
-    model = StocksDailyGold()
-    model.build()
-    model.store()
-    model.free()
+    stocks_daily_gold = StocksDailyGold()
+
+    for model in build_execution_plan([stocks_daily_gold]):
+        model.build_store_free()
 
 
 def build_everything():

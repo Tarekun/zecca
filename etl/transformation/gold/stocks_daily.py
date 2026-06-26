@@ -15,6 +15,7 @@ class StocksDailyGold(Model):
             layer="gold",
             partitioning_columns=["year", "month"],
         )
+        self.configure_dependencies([StocksDailySilver])
 
     def _build(self) -> pl.DataFrame:
         logger.debug("Using source: StocksDailySilver")

@@ -1,4 +1,6 @@
 import gc
+import graphlib
+import multiprocessing
 from abc import ABC, abstractmethod
 from pathlib import Path
 import polars as pl
@@ -23,6 +25,15 @@ class Model(ABC):
         self.layer = layer
         self.partitioning_columns = partitioning_columns
         self._df = None
+        self._dependencies: list[type] = []
+
+    def configure_dependencies(self, dependencies: list[type]) -> None:
+        for dep in dependencies:
+            if not (
+                isinstance(dep, type) and issubclass(dep, Model) and dep is not Model
+            ):
+                raise TypeError(f"{dep!r} is not a concrete subclass of Model")
+        self._dependencies = list(dependencies)
 
     @abstractmethod
     def _build(self) -> pl.DataFrame:
@@ -48,6 +59,10 @@ class Model(ABC):
                 f"{self.__class__.__name__}.df accessed before build() or load_from_disk() was called."
             )
         return self._df
+
+    @property
+    def dependencies(self) -> list[type]:
+        return self._dependencies
 
     def store(self):
         """Stores the dataframe as parquet under the appropriate data `layer` directory within
@@ -99,6 +114,26 @@ class Model(ABC):
         self._df = None
         gc.collect()
 
+    def build_store_free(self):
+        """Runs build(), store(), and free() in a dedicated subprocess.
+
+        Arrow-backed allocators (jemalloc/mimalloc) hold freed pages in their
+        own pool, so RSS stays high even after free(). A subprocess exit forces
+        the OS to reclaim all memory unconditionally, bypassing the allocator."""
+
+        def _run(model):
+            model.build()
+            model.store()
+            model.free()
+
+        proc = multiprocessing.Process(target=_run, args=(self,))
+        proc.start()
+        proc.join()
+        if proc.exitcode != 0:
+            raise RuntimeError(
+                f"{self.layer}/{self.name} subprocess exited with code {proc.exitcode}"
+            )
+
     def load_from_disk(self) -> pl.DataFrame:
         """Instead of computing the dataset from sources, reads it from
         the current version on disk as it gets saved by self.store"""
@@ -119,3 +154,26 @@ class Model(ABC):
             self._df.estimated_size("mb"),
         )
         return self._df
+
+
+# TODO tbh i dont understand how this works but it passes tests so gg
+def build_execution_plan(models: list[Model]) -> list[Model]:
+    """Returns the same Model instances reordered so every model's dependencies
+    appear before it.
+
+    The graph is built from classes: each model class is a node and its
+    set_dependencies() entries are predecessors. Instances not present in the
+    input list are ignored (their dependency edges are dropped). Raises
+    RuntimeError on circular dependencies."""
+
+    class_to_instance = {type(m): m for m in models}
+    known = set(class_to_instance)
+    graph = {type(m): {dep for dep in m.dependencies if dep in known} for m in models}
+
+    try:
+        order = list(graphlib.TopologicalSorter(graph).static_order())
+    except graphlib.CycleError as exc:
+        cycle = " -> ".join(cls.__name__ for cls in exc.args[1])
+        raise RuntimeError(f"Circular dependency detected: {cycle}") from exc
+
+    return [class_to_instance[cls] for cls in order]
