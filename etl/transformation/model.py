@@ -148,6 +148,13 @@ class Model(ABC):
                 f"{self.layer}/{self.name} subprocess exited with code {proc.exitcode}"
             )
 
+    def lazy_load(self) -> pl.LazyFrame:
+        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        if self.partitioning_columns:
+            return pl.scan_parquet(str(layer_dir / "**" / "*.parquet"), hive_partitioning=True)
+        else:
+            return pl.scan_parquet(layer_dir / f"{self.name}.parquet")
+
     def load_from_disk(self) -> pl.DataFrame:
         """Instead of computing the dataset from sources, reads it from
         the current version on disk as it gets saved by self.store"""
