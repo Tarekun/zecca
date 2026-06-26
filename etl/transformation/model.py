@@ -13,7 +13,10 @@ DATAPLATFORM_ROOT = "./dataplatform"
 
 class Model(ABC):
     def __init__(
-        self, name: str, layer: str, partitioning_columns: list[str] = []
+        self,
+        name: str,
+        layer: str,
+        partitioning_columns: list[str] = [],
     ) -> None:
         super().__init__()
         self.name = name

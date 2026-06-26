@@ -18,7 +18,9 @@ def compute_with_polars() -> pl.DataFrame:
     sec = (
         SecCompanyFactsPaddedSilver()
         .load_from_disk()
-        .select(["ticker", "reference_date", "number_of_shares"])
+        .select(
+            ["ticker", "reference_date", "shares_outstanding", "estimated_float_shares"]
+        )
     )
 
     df = candles.join(
@@ -26,7 +28,7 @@ def compute_with_polars() -> pl.DataFrame:
         left_on=["symbol", "timeframe"],
         right_on=["ticker", "reference_date"],
         how="left",
-    ).with_columns((pl.col("number_of_shares") * pl.col("open")).alias("evaluation"))
+    ).with_columns((pl.col("shares_outstanding") * pl.col("open")).alias("evaluation"))
 
     return df
 
@@ -50,10 +52,11 @@ def compute_with_duckdb() -> pl.DataFrame:
             SELECT
                 c.*,
                 s.number_of_shares,
+                s.estimated_float_shares,
                 s.number_of_shares * c.open AS evaluation
             FROM read_parquet('{_CANDLES_GLOB}', hive_partitioning = true) c
             LEFT JOIN (
-                SELECT ticker, reference_date, number_of_shares
+                SELECT ticker, reference_date, number_of_shares, estimated_float_shares
                 FROM read_parquet('{_SEC_PATH}')
             ) s ON c.symbol = s.ticker AND c.timeframe = s.reference_date
         """).pl()

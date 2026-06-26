@@ -37,16 +37,19 @@ def test_cik_count_matches_file_count():
     )
 
 
-def test_each_cik_has_at_least_one_val():
-    """Every CIK in the silver model must have at least one row with a non-null val.
+def test_each_cik_has_at_least_one_metric():
+    """Every CIK in the silver model must have at least one row with a non-null
+    shares_outstanding or non_affiliate_valuation.
 
-    CIKs that never have a val are written to
+    CIKs with no metric data are written to
     dataplatform/test_outputs/sec_company_facts_missing_val.csv for inspection.
     """
-    ciks_with_val = _df.filter(pl.col("val").is_not_null()).select("cik").unique()
+    ciks_with_data = _df.filter(
+        pl.col("shares_outstanding").is_not_null() | pl.col("non_affiliate_valuation").is_not_null()
+    ).select("cik").unique()
     all_ciks = _df.select("cik").unique()
 
-    missing_val = all_ciks.join(ciks_with_val, on="cik", how="anti").sort("cik")
+    missing_val = all_ciks.join(ciks_with_data, on="cik", how="anti").sort("cik")
 
     if missing_val.height > 0:
         _TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
@@ -54,7 +57,7 @@ def test_each_cik_has_at_least_one_val():
 
         affected = missing_val["cik"].drop_nulls().to_list()
         pytest.fail(
-            f"{missing_val.height} CIK(s) have no rows with a non-null val.\n"
+            f"{missing_val.height} CIK(s) have no rows with a non-null shares_outstanding or non_affiliate_valuation.\n"
             f"Affected CIKs ({len(affected)}): {affected[:20]}"
             f"{'...' if len(affected) > 20 else ''}\n"
             f"Full list written to dataplatform/test_outputs/sec_company_facts_missing_val.csv"
