@@ -102,17 +102,21 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
     kept in the output"""
 
     try:
-        tickers = CompanyTickersSilver().load_from_disk().select(
-            pl.col("cik_str").alias("cik"), pl.col("ticker")
+        tickers = (
+            CompanyTickersSilver()
+            .load_from_disk()
+            .select(pl.col("cik_str").alias("cik"), pl.col("ticker"))
         )
         prices = (
-            CandlesDailySilver("").load_from_disk()
+            CandlesDailySilver("")
+            .load_from_disk()
             .select(["timeframe", "symbol", "open"])
             .rename({"timeframe": "public_float_end", "symbol": "ticker"})
         )
     except Exception as e:
         logger.warning(
-            "Dependencies not found on disk — estimated_float_shares will be null: %s", e
+            "Dependencies not found on disk — estimated_float_shares will be null: %s",
+            e,
         )
         return df.with_columns(
             pl.lit(None, dtype=pl.Float64).alias("estimated_float_shares")
@@ -190,6 +194,7 @@ class SecCompanyFactsSilver(Model):
         # TODO configure model dependencies
         super().__init__(name="sec_company_facts", layer="silver")
         self.sec_data_path = sec_data_path
+        self.configure_dependencies([CompanyTickersSilver, CandlesDailySilver])
 
     def _build(self) -> pl.DataFrame:
         if self.sec_data_path is None:
