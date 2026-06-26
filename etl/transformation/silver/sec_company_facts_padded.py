@@ -1,10 +1,10 @@
 from datetime import date
-from pathlib import Path
 
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model, DATAPLATFORM_ROOT
+from etl.transformation.model import Model
+from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 
 logger = get_logger(__name__)
 
@@ -73,19 +73,10 @@ def compute_from_source() -> pl.DataFrame:
         - ``estimated_float_shares``   – non_affiliate_valuation / open price on the filing date
     """
 
-    root = Path(DATAPLATFORM_ROOT)
-    parquet_path = root / "silver" / "sec_company_facts" / "sec_company_facts.parquet"
-    tickers_path = root / "silver" / "company_tickers" / "company_tickers.parquet"
-
-    logger.debug("Using source: %s, %s", parquet_path, tickers_path)
-
-    tickers = pl.read_parquet(tickers_path).select(
-        pl.col("cik_str").alias("cik"), pl.col("ticker")
-    )
-
     today = date.today()
     df = (
-        pl.read_parquet(parquet_path)
+        SecCompanyFactsSilver()
+        .load_from_disk()
         .filter(pl.col("cik").is_not_null())
         .drop("source_file")
     )
@@ -121,12 +112,12 @@ def compute_from_source() -> pl.DataFrame:
         how="full",
         coalesce=True,
     )
-    entity_names = df.select(["cik", "entity_name"]).unique(
+    entity_names = df.select(["cik", "entity_name", "ticker"]).unique(
         subset=["cik"], keep="first"
     )
+
     return (
         combined.join(entity_names, on="cik", how="left")
-        .join(tickers, on="cik", how="left")
         .select(
             [
                 "cik",

@@ -3,7 +3,9 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model, DATAPLATFORM_ROOT
+from etl.transformation.model import Model
+from etl.transformation.silver.company_tickers import CompanyTickersSilver
+from etl.transformation.silver.candles_daily import CandlesDailySilver
 
 logger = get_logger(__name__)
 
@@ -99,33 +101,22 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
     ``estimated_float_shares``.  The ticker column used for the join is not
     kept in the output"""
 
-    dataplatform_root = Path(DATAPLATFORM_ROOT)
-    tickers_path = (
-        dataplatform_root / "silver" / "company_tickers" / "company_tickers.parquet"
-    )
-    candles_glob = str(
-        dataplatform_root / "silver" / "candles_daily" / "**" / "*.parquet"
-    )
-
-    if not tickers_path.exists():
+    try:
+        tickers = CompanyTickersSilver().load_from_disk().select(
+            pl.col("cik_str").alias("cik"), pl.col("ticker")
+        )
+        prices = (
+            CandlesDailySilver("").load_from_disk()
+            .select(["timeframe", "symbol", "open"])
+            .rename({"timeframe": "public_float_end", "symbol": "ticker"})
+        )
+    except Exception as e:
         logger.warning(
-            "company_tickers not found at %s — estimated_float_shares will be null",
-            tickers_path,
+            "Dependencies not found on disk — estimated_float_shares will be null: %s", e
         )
         return df.with_columns(
             pl.lit(None, dtype=pl.Float64).alias("estimated_float_shares")
         )
-
-    # TODO load both tickers and prices using respective models
-    tickers = pl.read_parquet(tickers_path).select(
-        pl.col("cik_str").alias("cik"), pl.col("ticker")
-    )
-    prices = (
-        pl.scan_parquet(candles_glob, hive_partitioning=True)
-        .select(["timeframe", "symbol", "open"])
-        .collect()
-        .rename({"timeframe": "public_float_end", "symbol": "ticker"})
-    )
 
     return (
         df.join(tickers, on="cik", how="left")
@@ -135,7 +126,7 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
                 "estimated_float_shares"
             )
         )
-        .drop(["ticker", "open"])
+        .drop(["open"])
     )
 
 
