@@ -52,12 +52,12 @@ def compute_with_duckdb() -> pl.DataFrame:
         return conn.execute(f"""
             SELECT
                 c.*,
-                s.number_of_shares,
+                s.shares_outstanding,
                 s.estimated_float_shares,
-                s.number_of_shares * c.open AS evaluation
+                s.shares_outstanding * c.open AS evaluation
             FROM read_parquet('{_CANDLES_GLOB}', hive_partitioning = true) c
             LEFT JOIN (
-                SELECT ticker, reference_date, number_of_shares, estimated_float_shares
+                SELECT ticker, reference_date, shares_outstanding, estimated_float_shares
                 FROM read_parquet('{_SEC_PATH}')
             ) s ON c.symbol = s.ticker AND c.timeframe = s.reference_date
         """).pl()
