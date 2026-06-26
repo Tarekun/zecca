@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-
 import polars as pl
 
 from etl.logger import get_logger
@@ -27,8 +26,7 @@ def _extract_rows(file_path: Path) -> list[dict]:
     """Extract EntityCommonStockSharesOutstanding and EntityPublicFloat rows from one SEC JSON file.
 
     Always returns at least one row. If any key in the nested path is absent the
-    metric-specific columns are null so no file is silently dropped.
-    """
+    metric-specific columns are null so no file is silently dropped"""
 
     null_row = {
         "cik": None,
@@ -51,16 +49,12 @@ def _extract_rows(file_path: Path) -> list[dict]:
     cik = data.get("cik")
     entity_name = data.get("entityName")
     common = {"cik": cik, "entity_name": entity_name, "source_file": file_path.name}
-
     dei = data.get("facts", {}).get("dei", {})
 
     shares_entries = (
-        dei.get("EntityCommonStockSharesOutstanding", {}).get("units", {}).get("shares") or []
+        dei.get("EntityCommonStockSharesOutstanding", {}).get("units", {}).get("shares")
+        or []
     )
-    float_entries = (
-        dei.get("EntityPublicFloat", {}).get("units", {}).get("USD") or []
-    )
-
     shares_rows = [
         {
             **common,
@@ -75,6 +69,7 @@ def _extract_rows(file_path: Path) -> list[dict]:
         for e in shares_entries
     ]
 
+    float_entries = dei.get("EntityPublicFloat", {}).get("units", {}).get("USD") or []
     float_rows = [
         {
             **common,
@@ -96,27 +91,35 @@ def _extract_rows(file_path: Path) -> list[dict]:
     return rows
 
 
-def _enrich_with_float_price(
-    df: pl.DataFrame, dataplatform_root: Path
-) -> pl.DataFrame:
+def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
     """Join each public float entry with the opening price on its end date and
     compute ``estimated_float_shares = non_affiliate_valuation / open``.
 
     Rows that have no matching ticker or no candle on that date get a null
     ``estimated_float_shares``.  The ticker column used for the join is not
-    kept in the output.
-    """
-    tickers_path = dataplatform_root / "silver" / "company_tickers" / "company_tickers.parquet"
-    candles_glob = str(dataplatform_root / "silver" / "candles_daily" / "**" / "*.parquet")
+    kept in the output"""
+
+    dataplatform_root = Path(DATAPLATFORM_ROOT)
+    tickers_path = (
+        dataplatform_root / "silver" / "company_tickers" / "company_tickers.parquet"
+    )
+    candles_glob = str(
+        dataplatform_root / "silver" / "candles_daily" / "**" / "*.parquet"
+    )
 
     if not tickers_path.exists():
-        logger.warning("company_tickers not found at %s — estimated_float_shares will be null", tickers_path)
-        return df.with_columns(pl.lit(None, dtype=pl.Float64).alias("estimated_float_shares"))
+        logger.warning(
+            "company_tickers not found at %s — estimated_float_shares will be null",
+            tickers_path,
+        )
+        return df.with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("estimated_float_shares")
+        )
 
+    # TODO load both tickers and prices using respective models
     tickers = pl.read_parquet(tickers_path).select(
         pl.col("cik_str").alias("cik"), pl.col("ticker")
     )
-
     prices = (
         pl.scan_parquet(candles_glob, hive_partitioning=True)
         .select(["timeframe", "symbol", "open"])
@@ -128,17 +131,15 @@ def _enrich_with_float_price(
         df.join(tickers, on="cik", how="left")
         .join(prices, on=["ticker", "public_float_end"], how="left")
         .with_columns(
-            (pl.col("non_affiliate_valuation").cast(pl.Float64) / pl.col("open"))
-            .alias("estimated_float_shares")
+            (pl.col("non_affiliate_valuation").cast(pl.Float64) / pl.col("open")).alias(
+                "estimated_float_shares"
+            )
         )
         .drop(["ticker", "open"])
     )
 
 
-def compute_from_source(
-    sec_data_path: str | Path,
-    dataplatform_root: str | Path | None = None,
-) -> pl.DataFrame:
+def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
     """Parse all SEC company facts JSON files under ``sec_data_path`` and return a
     flat DataFrame of EntityCommonStockSharesOutstanding and EntityPublicFloat entries.
 
@@ -187,26 +188,19 @@ def compute_from_source(
         pl.col("public_float_end").str.to_date(format="%Y-%m-%d", strict=False),
         pl.col("public_float_filed").str.to_date(format="%Y-%m-%d", strict=False),
     )
-
-    root = Path(dataplatform_root) if dataplatform_root is not None else None
-    if root is None:
-        root = Path(DATAPLATFORM_ROOT)
-    df = _enrich_with_float_price(df, root)
-
-    return df
+    return _enrich_with_float_price(df)
 
 
 class SecCompanyFactsSilver(Model):
     def __init__(
         self,
         sec_data_path: str | Path | None = None,
-        dataplatform_root: str | Path | None = None,
     ) -> None:
+        # TODO configure model dependencies
         super().__init__(name="sec_company_facts", layer="silver")
         self.sec_data_path = sec_data_path
-        self.dataplatform_root = dataplatform_root or DATAPLATFORM_ROOT
 
     def _build(self) -> pl.DataFrame:
         if self.sec_data_path is None:
             raise ValueError("sec_data_path is required to build SecCompanyFactsSilver")
-        return compute_from_source(self.sec_data_path, self.dataplatform_root)
+        return compute_from_source(self.sec_data_path)

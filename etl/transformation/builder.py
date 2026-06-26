@@ -51,7 +51,7 @@ def build_silver():
         CompanyTickersSilver(f"{DATAPLATFORM_ROOT}/raw/"),
         CandlesDailySilver(f"{DATAPLATFORM_ROOT}/raw/"),
         SecCompanyFactsSilver(f"{DATAPLATFORM_ROOT}/raw/sec/"),
-        SecCompanyFactsPaddedSilver(DATAPLATFORM_ROOT),
+        SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
     ]:
         model.build()

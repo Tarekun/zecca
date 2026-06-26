@@ -48,7 +48,7 @@ def _pad_series(df: pl.DataFrame, end_col: str, today: date) -> pl.DataFrame:
     )
 
 
-def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
+def compute_from_source() -> pl.DataFrame:
     """Read sec_company_facts from the silver layer and expand to one row per
     (cik, reference_date), padding each metric's time series independently.
 
@@ -73,7 +73,7 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
         - ``estimated_float_shares``   – non_affiliate_valuation / open price on the filing date
     """
 
-    root = Path(dataplatform_root)
+    root = Path(DATAPLATFORM_ROOT)
     parquet_path = root / "silver" / "sec_company_facts" / "sec_company_facts.parquet"
     tickers_path = root / "silver" / "company_tickers" / "company_tickers.parquet"
 
@@ -83,22 +83,34 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
         pl.col("cik_str").alias("cik"), pl.col("ticker")
     )
 
+    today = date.today()
     df = (
         pl.read_parquet(parquet_path)
         .filter(pl.col("cik").is_not_null())
         .drop("source_file")
     )
 
-    today = date.today()
-
     shares_padded = _pad_series(
-        df.select(["cik", "shares_outstanding_end", "shares_outstanding_fp", "shares_outstanding"]),
+        df.select(
+            [
+                "cik",
+                "shares_outstanding_end",
+                "shares_outstanding_fp",
+                "shares_outstanding",
+            ]
+        ),
         end_col="shares_outstanding_end",
         today=today,
     )
-
     float_padded = _pad_series(
-        df.select(["cik", "public_float_end", "non_affiliate_valuation", "estimated_float_shares"]),
+        df.select(
+            [
+                "cik",
+                "public_float_end",
+                "non_affiliate_valuation",
+                "estimated_float_shares",
+            ]
+        ),
         end_col="public_float_end",
         today=today,
     )
@@ -109,34 +121,31 @@ def compute_from_source(dataplatform_root: str | Path) -> pl.DataFrame:
         how="full",
         coalesce=True,
     )
-
-    entity_names = (
-        df.select(["cik", "entity_name"])
-        .unique(subset=["cik"], keep="first")
+    entity_names = df.select(["cik", "entity_name"]).unique(
+        subset=["cik"], keep="first"
     )
-
     return (
-        combined
-        .join(entity_names, on="cik", how="left")
+        combined.join(entity_names, on="cik", how="left")
         .join(tickers, on="cik", how="left")
-        .select([
-            "cik",
-            "entity_name",
-            "ticker",
-            "reference_date",
-            "shares_outstanding_fp",
-            "shares_outstanding",
-            "non_affiliate_valuation",
-            "estimated_float_shares",
-        ])
+        .select(
+            [
+                "cik",
+                "entity_name",
+                "ticker",
+                "reference_date",
+                "shares_outstanding_fp",
+                "shares_outstanding",
+                "non_affiliate_valuation",
+                "estimated_float_shares",
+            ]
+        )
         .sort(["cik", "reference_date"])
     )
 
 
 class SecCompanyFactsPaddedSilver(Model):
-    def __init__(self, dataplatform_root: str | Path | None = None) -> None:
+    def __init__(self) -> None:
         super().__init__(name="sec_company_facts_padded", layer="silver")
-        self.dataplatform_root = dataplatform_root or DATAPLATFORM_ROOT
 
     def _build(self) -> pl.DataFrame:
-        return compute_from_source(self.dataplatform_root)
+        return compute_from_source()
