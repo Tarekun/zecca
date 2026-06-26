@@ -1,26 +1,41 @@
+import argparse
 from pathlib import Path
 import yaml
+from etl.config import Config
 from etl.etl import etl
 
 
-def load_config(config_path: str = "configs/config.yml") -> dict:
-    """Load configuration from YAML file."""
+def load_config(operation: str, config_path: str = "configs/config.yml", selected: list[str] | None = None) -> Config:
     config_file = Path(config_path)
     with open(config_file, "r") as f:
-        config = yaml.safe_load(f)
-
-    required_keys = []
-    for key in required_keys:
-        if key not in config:
-            raise KeyError(f"Missing required config key: '{key}' in {config_file}")
-
-    # Validate base_directory is a string and create if it doesn't exist
-    # base_dir = Path(config["base_directory"])
-    # base_dir.mkdir(parents=True, exist_ok=True)
-    # config["base_directory"] = str(base_dir.absolute())
-
-    return config
+        raw = yaml.safe_load(f)
+    return Config(operation=operation, selected=selected, **raw)
 
 
-config = load_config()
-etl(config)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Zecca ETL pipeline")
+    parser.add_argument(
+        "verb",
+        choices=["injest", "transform", "test", "full"],
+        help="Pipeline stage to run",
+    )
+    parser.add_argument(
+        "--select",
+        type=lambda s: [name.strip() for name in s.split(",")],
+        default=None,
+        metavar="NAMES",
+        help="Comma-separated list of model/source names to include",
+    )
+    parser.add_argument(
+        "--config",
+        default="configs/config.yml",
+        metavar="PATH",
+        help="Path to the YAML config file (default: configs/config.yml)",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    config = load_config(args.verb, args.config, args.select)
+    etl(config)
