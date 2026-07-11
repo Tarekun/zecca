@@ -1,4 +1,3 @@
-from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
@@ -17,6 +16,6 @@ class StocksDailyGold(Model):
         )
         self.configure_dependencies([StocksDailySilver])
 
-    def _build(self) -> pl.DataFrame:
+    def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: StocksDailySilver")
-        return StocksDailySilver().load_from_disk()
+        return StocksDailySilver().lazy_load()

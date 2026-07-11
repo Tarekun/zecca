@@ -21,7 +21,7 @@ from etl.transformation.model import Model
 _LOOKBACKS = [1, 5, 14, 20, 30, 62, 126, 252]
 
 
-def compute_from_source(yfinance_data_path: str | Path) -> pl.DataFrame:
+def compute_from_source(yfinance_data_path: str | Path) -> pl.LazyFrame:
     """Read ticker_daily parquet data and compute the full candles_daily indicator set.
 
     Replicates the logic of the dbt model ``silver/candles_daily.sql`` and its
@@ -196,5 +196,5 @@ class CandlesDailySilver(Model):
         )
         self.yfinance_data_path = yfinance_data_path
 
-    def _build(self) -> pl.DataFrame:
+    def _build(self) -> pl.LazyFrame:
         return compute_from_source(self.yfinance_data_path)

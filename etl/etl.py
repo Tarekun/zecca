@@ -1,9 +1,10 @@
 from contextlib import contextmanager
-from dbt.cli.main import dbtRunner, dbtRunnerResult
 import os
+from etl.config import Config
 from etl.logger import get_logger
 from etl.sources import ingest_ticker_daily, ingest_ticker_hourly
 from etl.telegrambot import send_message_to_group
+from etl.transformation.builder import build_everything
 
 logger = get_logger(__name__)
 
@@ -19,35 +20,29 @@ def temporary_working_directory(path):
         os.chdir(original_cwd)
 
 
-def run_dbt_build(incremental: bool):
-    """Execute 'dbt build' command."""
-    with temporary_working_directory("./etl/dbt"):
-        dbt = dbtRunner()
-        cli_args = ["build"] if incremental else ["build", "--full-refresh"]
-        res: dbtRunnerResult = dbt.invoke(cli_args)
-        if not res.success:
-            raise Exception(f"Error during DBT build: {res.exception}")
-
-
-def etl(config: dict):
+def etl(config: Config):
     try:
         logger.info("Loaded configuration:\n%s", config)
 
-        logger.info("Starting ticker daily ingestion...")
-        ingest_ticker_daily(
-            base_dir=config["ingestion_dir"], incremental=config["incremental"]
-        )
-        logger.info("Starting ticker hourly ingestion...")
-        ingest_ticker_hourly(
-            base_dir=config["ingestion_dir"], incremental=config["incremental"]
-        )
-        logger.info("Ingestion completed successfully")
+        if config.operation in ["injest", "full"]:
+            logger.info("Starting ticker daily ingestion...")
+            ingest_ticker_daily(
+                base_dir=config.ingestion_dir, incremental=config.incremental
+            )
+            logger.info("Starting ticker hourly ingestion...")
+            ingest_ticker_hourly(
+                base_dir=config.ingestion_dir, incremental=config.incremental
+            )
+            logger.info("Ingestion completed successfully")
 
-        logger.info("Triggering dbt build...")
-        run_dbt_build(config["incremental"])
-        logger.info("Job completed successfully!")
+        if config.operation in ["transform", "full"]:
+            logger.info("Starting model build pipeline...")
+            build_everything(config)
+            logger.info("All models built correctly!")
 
-        send_message_to_group("Another day another dolla")
+        if config.operation in ["full"]:
+            # send this message only on daily full runs
+            send_message_to_group("Another day another dolla")
     except Exception as e:
         logger.error("Job failed with error: %s", e)
         send_message_to_group(f"Errore nell'ELT giornaliero: {e}")

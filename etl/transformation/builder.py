@@ -2,8 +2,9 @@ import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from etl.config import Config
 from etl.logger import get_logger
-from etl.transformation.model import DATAPLATFORM_ROOT, build_execution_plan
+from etl.transformation.model import DATAPLATFORM_ROOT, Model, build_execution_plan
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
@@ -44,33 +45,35 @@ def _backup_transformed():
             logger.info("Removed stale backup: %s", entry)
 
 
-def build_silver():
-    """Build all silver layer models"""
-
-    for model in build_execution_plan([
+def build_silver(config: Config):
+    models: list[Model] = [
         CompanyTickersSilver(f"{DATAPLATFORM_ROOT}/raw/"),
         CandlesDailySilver(f"{DATAPLATFORM_ROOT}/raw/"),
         SecCompanyFactsSilver(f"{DATAPLATFORM_ROOT}/raw/sec/"),
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
-    ]):
+    ]
+    if config.selected is not None:
+        models = [m for m in models if m.name in config.selected]
+
+    for model in build_execution_plan(models):
         model.build_store_free()
 
 
-def build_gold():
-    """Build all gold layer models, assuming silver models have been processed"""
+def build_gold(config: Config):
+    models: list[Model] = [StocksDailyGold()]
+    if config.selected is not None:
+        models = [m for m in models if m.name in config.selected]
 
-    stocks_daily_gold = StocksDailyGold()
-
-    for model in build_execution_plan([stocks_daily_gold]):
+    for model in build_execution_plan(models):
         model.build_store_free()
 
 
-def build_everything():
+def build_everything(config: Config):
     try:
         _backup_transformed()
-        build_silver()
-        build_gold()
+        build_silver(config)
+        build_gold(config)
     except Exception as e:
         logger.error("Build failed: %s", e)
         raise e
