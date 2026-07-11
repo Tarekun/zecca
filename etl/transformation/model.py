@@ -10,7 +10,7 @@ from etl.logger import get_logger
 
 logger = get_logger(__name__)
 
-DATAPLATFORM_ROOT = "./dataplatform"
+DEFAULT_DATAPLATFORM_ROOT = "./dataplatform"
 
 
 class Model(ABC):
@@ -19,6 +19,7 @@ class Model(ABC):
         name: str,
         layer: str,
         partitioning_columns: list[str] = [],
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__()
         self.name = name
@@ -26,6 +27,7 @@ class Model(ABC):
         self.partitioning_columns = partitioning_columns
         self._df: pl.DataFrame | None = None
         self._lf: pl.LazyFrame | None = None
+        self.dataplatform_root = dataplatform_root
         self._dependencies: list[type] = []
 
     def configure_dependencies(self, dependencies: list[type]) -> None:
@@ -45,7 +47,9 @@ class Model(ABC):
         result = self._build()
         if isinstance(result, pl.LazyFrame):
             self._lf = result
-            logger.info("%s/%s build plan ready (lazy/streaming)", self.layer, self.name)
+            logger.info(
+                "%s/%s build plan ready (lazy/streaming)", self.layer, self.name
+            )
         else:
             self._df = result
             logger.info(
@@ -70,7 +74,13 @@ class Model(ABC):
         return self._dependencies
 
     def store(self):
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        """Stores the dataframe as parquet under the appropriate data `layer` directory within
+        a directory `model_name`. To set hive-partitioning provide the (ordered) list of column names
+        to use for partitioning.
+
+        Also includes a .yaml file with schema details of the generated dataframe"""
+
+        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         layer_dir.mkdir(parents=True, exist_ok=True)
 
         if self._lf is not None:
@@ -149,9 +159,11 @@ class Model(ABC):
             )
 
     def lazy_load(self) -> pl.LazyFrame:
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        layer_dir = Path(DEFAULT_DATAPLATFORM_ROOT) / self.layer / self.name
         if self.partitioning_columns:
-            return pl.scan_parquet(str(layer_dir / "**" / "*.parquet"), hive_partitioning=True)
+            return pl.scan_parquet(
+                str(layer_dir / "**" / "*.parquet"), hive_partitioning=True
+            )
         else:
             return pl.scan_parquet(layer_dir / f"{self.name}.parquet")
 
@@ -160,7 +172,7 @@ class Model(ABC):
         the current version on disk as it gets saved by self.store"""
 
         logger.info("Loading from disk data model %s", self.name)
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         if self.partitioning_columns:
             glob_path = str(layer_dir / "**" / "*.parquet")
             self._df = pl.scan_parquet(glob_path, hive_partitioning=True).collect()

@@ -15,7 +15,7 @@ from etl.transformation.indicators import (
     volatility,
 )
 from etl.transformation.utils import load_ticker_daily
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 # Lookback periods in trading days, matching candles_enhanced([1, 5, 14, 20, 30, 62, 126, 252])
 _LOOKBACKS = [1, 5, 14, 20, 30, 62, 126, 252]
@@ -188,11 +188,16 @@ def compute_from_source(yfinance_data_path: str | Path) -> pl.LazyFrame:
 
 
 class CandlesDailySilver(Model):
-    def __init__(self, yfinance_data_path: str | Path) -> None:
+    def __init__(
+        self,
+        yfinance_data_path: str | Path,
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+    ) -> None:
         super().__init__(
             name="candles_daily",
             layer="silver",
             partitioning_columns=["year", "month"],
+            dataplatform_root=dataplatform_root,
         )
         self.yfinance_data_path = yfinance_data_path
 

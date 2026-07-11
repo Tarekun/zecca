@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 logger = get_logger(__name__)
 
@@ -77,8 +77,14 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
 
 
 class SecIndicatorsSilver(Model):
-    def __init__(self, sec_data_path: str | Path | None = None) -> None:
-        super().__init__(name="sec_indicators", layer="silver")
+    def __init__(
+        self,
+        sec_data_path: str | Path | None = None,
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+    ) -> None:
+        super().__init__(
+            name="sec_indicators", layer="silver", dataplatform_root=dataplatform_root
+        )
         self.sec_data_path = sec_data_path
 
     def _build(self) -> pl.DataFrame:

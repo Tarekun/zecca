@@ -4,7 +4,11 @@ from pathlib import Path
 
 from etl.config import Config
 from etl.logger import get_logger
-from etl.transformation.model import DATAPLATFORM_ROOT, Model, build_execution_plan
+from etl.transformation.model import (
+    DEFAULT_DATAPLATFORM_ROOT,
+    Model,
+    build_execution_plan,
+)
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
@@ -20,7 +24,7 @@ logger = get_logger(__name__)
 def _backup_transformed():
     """Backs up the data platform layers that currently exist before transformations"""
 
-    root = Path(DATAPLATFORM_ROOT)
+    root = Path(DEFAULT_DATAPLATFORM_ROOT)
     today_str = datetime.now().strftime("%Y%m%d")
     backup_dir = root / "backups" / today_str
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -47,9 +51,9 @@ def _backup_transformed():
 
 def build_silver(config: Config):
     models: list[Model] = [
-        CompanyTickersSilver(f"{DATAPLATFORM_ROOT}/raw/"),
-        CandlesDailySilver(f"{DATAPLATFORM_ROOT}/raw/"),
-        SecCompanyFactsSilver(f"{DATAPLATFORM_ROOT}/raw/sec/"),
+        CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
+        CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
+        SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
     ]
