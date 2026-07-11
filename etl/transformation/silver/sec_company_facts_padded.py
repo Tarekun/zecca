@@ -53,10 +53,10 @@ def compute_from_source() -> pl.LazyFrame:
     """Read sec_company_facts from the silver layer and expand to one row per
     (cik, reference_date), padding each metric's time series independently.
 
-    EntityCommonStockSharesOutstanding and EntityPublicFloat are padded
-    separately so that entries from one metric never influence the forward-fill
-    boundaries of the other.  The two padded series are then outer-joined on
-    (cik, reference_date).
+    EntityCommonStockSharesOutstanding, EntityPublicFloat, and annual
+    NetIncomeLoss are padded separately so that entries from one metric never
+    influence the forward-fill boundaries of another.  The three padded series
+    are then outer-joined on (cik, reference_date).
 
     Args:
         dataplatform_root: Root of the dataplatform directory (e.g. "./dataplatform").
@@ -72,6 +72,7 @@ def compute_from_source() -> pl.LazyFrame:
         - ``shares_outstanding``      – shares outstanding on ``reference_date``
         - ``non_affiliate_valuation``  – public float in USD on ``reference_date``
         - ``estimated_float_shares``   – non_affiliate_valuation / open price on the filing date
+        - ``earnings``                  – most recently reported annual net income (USD)
     """
 
     today = date.today()
@@ -106,9 +107,19 @@ def compute_from_source() -> pl.LazyFrame:
         end_col="public_float_end",
         today=today,
     )
+    earnings_padded = _pad_series(
+        lf.select(["cik", "earnings_end", "earnings"]),
+        end_col="earnings_end",
+        today=today,
+    )
 
     combined = shares_padded.join(
         float_padded,
+        on=["cik", "reference_date"],
+        how="full",
+        coalesce=True,
+    ).join(
+        earnings_padded,
         on=["cik", "reference_date"],
         how="full",
         coalesce=True,
@@ -129,6 +140,7 @@ def compute_from_source() -> pl.LazyFrame:
                 "shares_outstanding",
                 "non_affiliate_valuation",
                 "estimated_float_shares",
+                "earnings",
             ]
         )
         .sort(["cik", "reference_date"])

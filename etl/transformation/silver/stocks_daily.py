@@ -30,14 +30,21 @@ class StocksDailySilver(Model):
                     "reference_date",
                     "shares_outstanding",
                     "estimated_float_shares",
+                    "earnings",
                 ]
             )
         )
-        return candles.join(
-            sec,
-            left_on=["symbol", "timeframe"],
-            right_on=["ticker", "reference_date"],
-            how="left",
-        ).with_columns(
-            (pl.col("shares_outstanding") * pl.col("open")).alias("evaluation")
+        return (
+            candles.join(
+                sec,
+                left_on=["symbol", "timeframe"],
+                right_on=["ticker", "reference_date"],
+                how="left",
+            )
+            .with_columns(
+                (pl.col("shares_outstanding") * pl.col("open")).alias("evaluation")
+            )
+            .with_columns(
+                (pl.col("evaluation") / pl.col("earnings")).alias("price_to_earnings")
+            )
         )
