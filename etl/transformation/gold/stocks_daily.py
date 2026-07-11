@@ -19,4 +19,4 @@ class StocksDailyGold(Model):
 
     def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: StocksDailySilver")
-        return StocksDailySilver().lazy_load()
+        return StocksDailySilver().read_from_disk()

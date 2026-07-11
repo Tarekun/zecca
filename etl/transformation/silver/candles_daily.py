@@ -33,7 +33,7 @@ def compute_from_source(yfinance_data_path: str | Path) -> pl.LazyFrame:
             that maps to the ``yfinance_data`` dbt variable in ``profiles.yml``.
 
     Returns:
-        Eager DataFrame with one row per (symbol, date) containing:
+        LazyFrame with one row per (symbol, date) containing:
 
         - Identity: ``timeframe``, ``year``, ``month``, ``symbol``
         - OHLCV: ``open``, ``close``, ``high``, ``low``, ``volume``

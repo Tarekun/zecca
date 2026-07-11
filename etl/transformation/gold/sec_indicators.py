@@ -15,11 +15,11 @@ class SecIndicatorsGold(Model):
         )
         self.configure_dependencies([SecIndicatorsSilver])
 
-    def _build(self) -> pl.DataFrame:
+    def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: SecIndicatorsSilver")
         return (
             SecIndicatorsSilver()
-            .load_from_disk()
+            .read_from_disk()
             .sort("cik_count", descending=True)
             .select(["cik_count", "namespace", "indicator", "label", "description"])
         )
@@ -27,11 +27,12 @@ class SecIndicatorsGold(Model):
     def store(self):
         layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         layer_dir.mkdir(parents=True, exist_ok=True)
-        self.df.write_csv(layer_dir / f"{self.name}.csv")
+        export = self.df
+        export.write_csv(layer_dir / f"{self.name}.csv")
         logger.info(
             "Stored %s/%s as CSV: %d rows × %d cols",
             self.layer,
             self.name,
-            self.df.height,
-            self.df.width,
+            export.height,
+            export.width,
         )

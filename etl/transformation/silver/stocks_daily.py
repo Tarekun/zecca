@@ -21,10 +21,10 @@ class StocksDailySilver(Model):
         self.configure_dependencies([CandlesDailySilver, SecCompanyFactsPaddedSilver])
 
     def _build(self) -> pl.LazyFrame:
-        candles = CandlesDailySilver("").lazy_load()
+        candles = CandlesDailySilver("").read_from_disk()
         sec = (
             SecCompanyFactsPaddedSilver()
-            .lazy_load()
+            .read_from_disk()
             .select(
                 [
                     "ticker",
