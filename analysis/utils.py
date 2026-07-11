@@ -1,5 +1,11 @@
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
+import polars as pl
+
+from etl.transformation.gold import StocksDailyGold
+from etl.transformation.model import DEFAULT_DATAPLATFORM_ROOT
 
 
 def label_returns_dynamic(
@@ -104,3 +110,44 @@ def label_returns_dynamic(
         include_lowest=True,
     )
     return df
+
+
+def stocks_daily_with_future_price(
+    lookahead_steps: int,
+    thresholds: list[float] = [],
+    dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+):
+    """Returns the StocksDaily data model extended with the price of the symbol
+    `lookahead_steps` timeframes ahead for price forecasting.
+
+    By default, appends the column `future_price` with the raw price value.
+    If `thresholds` is provided, it also includes the `price_movement_class`
+    column for discrete classes of price changes. `thresholds` should be a list
+    of positive numbers representing percentage price variations and price classes
+    are created with symmetry around zero.
+
+    If `thresholds=[0.01, 0.03]` 5 classes are derived: increase of more than 3%, increase
+    between 1%-3%, price stagnation between 1% and -1%, price dicrease of 1-3%, price
+    dicrease of more than 3%.
+
+    `dataplatform_root` overrides the default dataplatform directory the
+    `stocks_daily` gold model is loaded from.
+    """
+
+    stocks_daily = StocksDailyGold(dataplatform_root=dataplatform_root)
+    df = (
+        stocks_daily.load_from_disk()
+        .sort(["symbol", "timeframe"])
+        .with_columns(
+            pl.col("open").shift(-lookahead_steps).over("symbol").alias("future_price")
+        )
+    )
+
+    if not thresholds:
+        return df
+
+    posi = sorted(thresholds)
+    nega = [-t for t in reversed(posi) if t != 0]
+    bin_edges = nega + posi
+    future_return = pl.col("future_price") / pl.col("open") - 1
+    return df.with_columns(future_return.cut(bin_edges).alias("price_movement_class"))
