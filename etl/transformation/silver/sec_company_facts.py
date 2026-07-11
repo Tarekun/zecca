@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
@@ -190,9 +190,12 @@ class SecCompanyFactsSilver(Model):
     def __init__(
         self,
         sec_data_path: str | Path | None = None,
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         # TODO configure model dependencies
-        super().__init__(name="sec_company_facts", layer="silver")
+        super().__init__(
+            name="sec_company_facts", layer="silver", dataplatform_root=dataplatform_root
+        )
         self.sec_data_path = sec_data_path
         self.configure_dependencies([CompanyTickersSilver, CandlesDailySilver])
 

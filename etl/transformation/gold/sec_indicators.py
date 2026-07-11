@@ -3,14 +3,16 @@ import polars as pl
 
 from etl.logger import get_logger
 from etl.transformation.silver.sec_indicators import SecIndicatorsSilver
-from etl.transformation.model import Model, DATAPLATFORM_ROOT
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 logger = get_logger(__name__)
 
 
 class SecIndicatorsGold(Model):
-    def __init__(self):
-        super().__init__(name="sec_indicators", layer="gold")
+    def __init__(self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT):
+        super().__init__(
+            name="sec_indicators", layer="gold", dataplatform_root=dataplatform_root
+        )
         self.configure_dependencies([SecIndicatorsSilver])
 
     def _build(self) -> pl.DataFrame:
@@ -23,7 +25,7 @@ class SecIndicatorsGold(Model):
         )
 
     def store(self):
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         layer_dir.mkdir(parents=True, exist_ok=True)
         self.df.write_csv(layer_dir / f"{self.name}.csv")
         logger.info(

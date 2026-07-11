@@ -1,9 +1,10 @@
 from datetime import date
+from pathlib import Path
 
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 
 logger = get_logger(__name__)
@@ -135,8 +136,12 @@ def compute_from_source() -> pl.DataFrame:
 
 
 class SecCompanyFactsPaddedSilver(Model):
-    def __init__(self) -> None:
-        super().__init__(name="sec_company_facts_padded", layer="silver")
+    def __init__(self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT) -> None:
+        super().__init__(
+            name="sec_company_facts_padded",
+            layer="silver",
+            dataplatform_root=dataplatform_root,
+        )
         self.configure_dependencies([SecCompanyFactsSilver])
 
     def _build(self) -> pl.DataFrame:

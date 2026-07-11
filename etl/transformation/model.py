@@ -10,7 +10,7 @@ from etl.logger import get_logger
 
 logger = get_logger(__name__)
 
-DATAPLATFORM_ROOT = "./dataplatform"
+DEFAULT_DATAPLATFORM_ROOT = "./dataplatform"
 
 
 class Model(ABC):
@@ -19,11 +19,13 @@ class Model(ABC):
         name: str,
         layer: str,
         partitioning_columns: list[str] = [],
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__()
         self.name = name
         self.layer = layer
         self.partitioning_columns = partitioning_columns
+        self.dataplatform_root = dataplatform_root
         self._df = None
         self._dependencies: list[type] = []
 
@@ -71,7 +73,7 @@ class Model(ABC):
 
         Also includes a .yaml file with schema details of the generated dataframe"""
 
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         layer_dir.mkdir(parents=True, exist_ok=True)
 
         if self.partitioning_columns:
@@ -139,7 +141,7 @@ class Model(ABC):
         the current version on disk as it gets saved by self.store"""
 
         logger.info("Loading from disk data model %s", self.name)
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         if self.partitioning_columns:
             glob_path = str(layer_dir / "**" / "*.parquet")
             self._df = pl.scan_parquet(glob_path, hive_partitioning=True).collect()

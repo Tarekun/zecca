@@ -4,7 +4,7 @@ import polars as pl
 import yaml
 
 from etl.logger import get_logger
-from etl.transformation.model import Model, DATAPLATFORM_ROOT
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 
 logger = get_logger(__name__)
@@ -55,15 +55,17 @@ def compute_from_source() -> pl.DataFrame:
 
 
 class Sp500ApproximatedSilver(Model):
-    def __init__(self) -> None:
-        super().__init__(name="sp500_approximated", layer="silver")
+    def __init__(self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT) -> None:
+        super().__init__(
+            name="sp500_approximated", layer="silver", dataplatform_root=dataplatform_root
+        )
 
     def _build(self) -> pl.DataFrame:
         return compute_from_source()
 
     def store(self):
         """Write only the latest date's snapshot as a CSV, sorted by rank ascending."""
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         layer_dir.mkdir(parents=True, exist_ok=True)
 
         latest_date = self.df["timeframe"].max()

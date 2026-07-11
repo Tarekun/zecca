@@ -3,7 +3,7 @@ import polars as pl
 from pathlib import Path
 
 from etl.logger import get_logger
-from etl.transformation.model import Model, DATAPLATFORM_ROOT
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.sec_company_facts_padded import (
@@ -36,10 +36,10 @@ def compute_with_polars() -> pl.DataFrame:
 
 # TODO handle this better
 _CANDLES_GLOB = str(
-    Path(DATAPLATFORM_ROOT) / "silver" / "candles_daily" / "**" / "*.parquet"
+    Path(DEFAULT_DATAPLATFORM_ROOT) / "silver" / "candles_daily" / "**" / "*.parquet"
 )
 _SEC_PATH = str(
-    Path(DATAPLATFORM_ROOT)
+    Path(DEFAULT_DATAPLATFORM_ROOT)
     / "silver"
     / "sec_company_facts_padded"
     / "sec_company_facts_padded.parquet"
@@ -64,11 +64,12 @@ def compute_with_duckdb() -> pl.DataFrame:
 
 
 class StocksDailySilver(Model):
-    def __init__(self) -> None:
+    def __init__(self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT) -> None:
         super().__init__(
             name="stocks_daily",
             layer="silver",
             partitioning_columns=["year", "month"],
+            dataplatform_root=dataplatform_root,
         )
         self.configure_dependencies([CandlesDailySilver, SecCompanyFactsPaddedSilver])
 
