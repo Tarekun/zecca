@@ -10,7 +10,7 @@ from etl.transformation.silver.company_tickers import CompanyTickersSilver
 
 _TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
 
-_df = CompanyTickersSilver().load_from_disk()
+_df = CompanyTickersSilver().read_from_disk().collect()
 
 
 def test_no_null_cik_str():

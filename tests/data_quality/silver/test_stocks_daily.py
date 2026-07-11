@@ -11,8 +11,8 @@ from etl.transformation.silver.stocks_daily import StocksDailySilver
 
 _TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
 
-_df = StocksDailySilver().load_from_disk()
-_candles = CandlesDailySilver().load_from_disk()
+_df = StocksDailySilver().read_from_disk().collect()
+_candles = CandlesDailySilver("").read_from_disk().collect()
 
 
 def test_no_null_symbol():
