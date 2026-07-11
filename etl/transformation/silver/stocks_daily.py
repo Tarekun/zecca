@@ -18,7 +18,6 @@ class StocksDailySilver(Model):
             partitioning_columns=["year", "month"],
             dataplatform_root=dataplatform_root,
         )
-        self.configure_dependencies([CandlesDailySilver, SecCompanyFactsPaddedSilver])
 
     def _build(self) -> pl.LazyFrame:
         candles = CandlesDailySilver("").read_from_disk()

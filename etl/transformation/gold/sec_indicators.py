@@ -13,7 +13,6 @@ class SecIndicatorsGold(Model):
         super().__init__(
             name="sec_indicators", layer="gold", dataplatform_root=dataplatform_root
         )
-        self.configure_dependencies([SecIndicatorsSilver])
 
     def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: SecIndicatorsSilver")

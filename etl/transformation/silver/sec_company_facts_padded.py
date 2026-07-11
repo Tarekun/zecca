@@ -142,7 +142,6 @@ class SecCompanyFactsPaddedSilver(Model):
             layer="silver",
             dataplatform_root=dataplatform_root,
         )
-        self.configure_dependencies([SecCompanyFactsSilver])
 
     def _build(self) -> pl.LazyFrame:
         return compute_from_source()

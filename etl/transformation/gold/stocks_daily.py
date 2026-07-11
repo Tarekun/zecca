@@ -15,7 +15,6 @@ class StocksDailyGold(Model):
             partitioning_columns=["year", "month"],
             dataplatform_root=dataplatform_root,
         )
-        self.configure_dependencies([StocksDailySilver])
 
     def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: StocksDailySilver")

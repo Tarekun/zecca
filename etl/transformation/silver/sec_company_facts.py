@@ -192,12 +192,10 @@ class SecCompanyFactsSilver(Model):
         sec_data_path: str | Path | None = None,
         dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
-        # TODO configure model dependencies
         super().__init__(
             name="sec_company_facts", layer="silver", dataplatform_root=dataplatform_root
         )
         self.sec_data_path = sec_data_path
-        self.configure_dependencies([CompanyTickersSilver, CandlesDailySilver])
 
     def _build(self) -> pl.LazyFrame:
         if self.sec_data_path is None:

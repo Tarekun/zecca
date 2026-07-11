@@ -1,5 +1,8 @@
+import ast
 import gc
 import graphlib
+import inspect
+import textwrap
 from abc import ABC, abstractmethod
 from pathlib import Path
 import polars as pl
@@ -26,15 +29,20 @@ class Model(ABC):
         self.partitioning_columns = partitioning_columns
         self._lf: pl.LazyFrame | None = None
         self.dataplatform_root = dataplatform_root
-        self._dependencies: list[type] = []
+        self._configured_dependencies: list[type] | None = None
+        self._discovered_dependencies: list[type] | None = None
 
     def configure_dependencies(self, dependencies: list[type]) -> None:
+        """Explicitly overrides dependency auto-discovery (see the `dependencies`
+        property) with a fixed list. Use this when a dependency is only reached
+        through a code path that static inspection of `_build` can't see, e.g.
+        one guarded by a runtime condition."""
         for dep in dependencies:
             if not (
                 isinstance(dep, type) and issubclass(dep, Model) and dep is not Model
             ):
                 raise TypeError(f"{dep!r} is not a concrete subclass of Model")
-        self._dependencies = list(dependencies)
+        self._configured_dependencies = list(dependencies)
 
     @abstractmethod
     def _build(self) -> pl.LazyFrame:
@@ -59,7 +67,32 @@ class Model(ABC):
 
     @property
     def dependencies(self) -> list[type]:
-        return self._dependencies
+        """The other Model subclasses this model needs built first.
+
+        Defaults to statically discovering them from `_build`'s own source
+        (see `_discover_dependencies`); call `configure_dependencies` to
+        override with an explicit list instead."""
+        if self._configured_dependencies is not None:
+            return self._configured_dependencies
+
+        if self._discovered_dependencies is None:
+            self._discovered_dependencies = self._discover_dependencies()
+        return self._discovered_dependencies
+
+    def _discover_dependencies(self) -> list[type]:
+        """Statically walks the AST of this model's `_build` implementation,
+        recursing into any plain function it calls (transitively, within the
+        `etl` package), looking for references to other `Model` subclasses.
+
+        This is a pure function of `type(self)`'s own source code: the only
+        state involved is the local `discovered`/`visited` sets built up
+        during this single call, so there is nothing shared across instances
+        or calls."""
+        discovered: set[type] = set()
+        visited_functions: set[object] = set()
+        _collect_model_refs(type(self)._build, discovered, visited_functions)
+        discovered.discard(type(self))
+        return sorted(discovered, key=lambda cls: cls.__qualname__)
 
     def store(self):
         """Stores the lazy plan as parquet under the appropriate data `layer` directory within
@@ -150,6 +183,46 @@ class Model(ABC):
             self._lf = pl.scan_parquet(layer_dir / f"{self.name}.parquet")
         logger.info("%s/%s scan plan ready from disk", self.layer, self.name)
         return self._lf
+
+
+def _resolve_ast_node(node: ast.AST, scope: dict):
+    """Resolves a Name/Attribute AST node to the runtime object it refers to,
+    using `scope` (a function's __globals__) to look up root names. Returns
+    None for anything it can't resolve (locals, calls, literals, ...)."""
+
+    if isinstance(node, ast.Name):
+        return scope.get(node.id)
+    if isinstance(node, ast.Attribute):
+        base = _resolve_ast_node(node.value, scope)
+        return getattr(base, node.attr, None) if base is not None else None
+    return None
+
+
+def _collect_model_refs(func, discovered: set[type], visited_functions: set) -> None:
+    """Recursively scans `func`'s source for references to Model subclasses,
+    following calls into any other plain function defined within the `etl`
+    package (so indirection through helper functions like the codebase's
+    `compute_from_source` is still followed)"""
+
+    if func in visited_functions:
+        return
+    visited_functions.add(func)
+
+    try:
+        source = textwrap.dedent(inspect.getsource(func))
+        tree = ast.parse(source)
+    except (OSError, TypeError, SyntaxError):
+        return
+
+    scope = getattr(func, "__globals__", {})
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Name, ast.Attribute)):
+            continue
+        obj = _resolve_ast_node(node, scope)
+        if isinstance(obj, type) and issubclass(obj, Model) and obj is not Model:
+            discovered.add(obj)
+        elif inspect.isfunction(obj) and (obj.__module__ or "").startswith("etl"):
+            _collect_model_refs(obj, discovered, visited_functions)
 
 
 # TODO tbh i dont understand how this works but it passes tests so gg
