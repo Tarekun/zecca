@@ -4,13 +4,13 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 logger = get_logger(__name__)
 
 
-def compute_from_source(raw_data_path: str | Path) -> pl.DataFrame:
-    """Parse the SEC company_tickers.json file and return a flat DataFrame.
+def compute_from_source(raw_data_path: str | Path) -> pl.LazyFrame:
+    """Parse the SEC company_tickers.json file and return a flat LazyFrame.
 
     The source file is a JSON object keyed by sequential integers (which are
     discarded). Each value contains cik_str, ticker, and title.
@@ -19,7 +19,7 @@ def compute_from_source(raw_data_path: str | Path) -> pl.DataFrame:
         raw_data_path: Root raw data directory containing company_tickers.json.
 
     Returns:
-        Eager DataFrame with columns:
+        LazyFrame with columns:
 
         - ``cik_str`` – CIK as an integer
         - ``ticker``  – exchange ticker symbol
@@ -44,15 +44,21 @@ def compute_from_source(raw_data_path: str | Path) -> pl.DataFrame:
         schema={"cik_str": pl.Int64, "ticker": pl.String, "title": pl.String},
     )
 
-    return df
+    return df.lazy()
 
 
 class CompanyTickersSilver(Model):
-    def __init__(self, raw_data_path: str | Path | None = None) -> None:
-        super().__init__(name="company_tickers", layer="silver")
+    def __init__(
+        self,
+        raw_data_path: str | Path | None = None,
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+    ) -> None:
+        super().__init__(
+            name="company_tickers", layer="silver", dataplatform_root=dataplatform_root
+        )
         self.raw_data_path = raw_data_path
 
-    def _build(self) -> pl.DataFrame:
+    def _build(self) -> pl.LazyFrame:
         if self.raw_data_path is None:
             raise ValueError("raw_data_path is required to build CompanyTickersSilver")
         return compute_from_source(self.raw_data_path)

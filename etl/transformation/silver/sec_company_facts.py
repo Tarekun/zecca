@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
@@ -93,7 +93,7 @@ def _extract_rows(file_path: Path) -> list[dict]:
     return rows
 
 
-def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
+def _enrich_with_float_price(lf: pl.LazyFrame) -> pl.LazyFrame:
     """Join each public float entry with the opening price on its end date and
     compute ``estimated_float_shares = non_affiliate_valuation / open``.
 
@@ -104,12 +104,12 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
     try:
         tickers = (
             CompanyTickersSilver()
-            .load_from_disk()
+            .read_from_disk()
             .select(pl.col("cik_str").alias("cik"), pl.col("ticker"))
         )
         prices = (
             CandlesDailySilver("")
-            .load_from_disk()
+            .read_from_disk()
             .select(["timeframe", "symbol", "open"])
             .rename({"timeframe": "public_float_end", "symbol": "ticker"})
         )
@@ -118,12 +118,12 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
             "Dependencies not found on disk — estimated_float_shares will be null: %s",
             e,
         )
-        return df.with_columns(
+        return lf.with_columns(
             pl.lit(None, dtype=pl.Float64).alias("estimated_float_shares")
         )
 
     return (
-        df.join(tickers, on="cik", how="left")
+        lf.join(tickers, on="cik", how="left")
         .join(prices, on=["ticker", "public_float_end"], how="left")
         .with_columns(
             (pl.col("non_affiliate_valuation").cast(pl.Float64) / pl.col("open")).alias(
@@ -134,9 +134,9 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
+def compute_from_source(sec_data_path: str | Path) -> pl.LazyFrame:
     """Parse all SEC company facts JSON files under ``sec_data_path`` and return a
-    flat DataFrame of EntityCommonStockSharesOutstanding and EntityPublicFloat entries.
+    flat LazyFrame of EntityCommonStockSharesOutstanding and EntityPublicFloat entries.
 
     Each metric's entries are represented as separate rows; metric-specific columns
     are null on rows belonging to the other metric.
@@ -150,7 +150,7 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
     data is held in memory at any time.
 
     Returns:
-        Eager DataFrame with columns:
+        LazyFrame with columns:
 
         - ``cik``                      – company CIK (integer)
         - ``entity_name``              – from entityName
@@ -175,28 +175,29 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
         rows = []
         for file_path in batch:
             rows.extend(_extract_rows(file_path))
-        chunks.append(pl.from_dicts(rows, schema=_SCHEMA))
+        chunks.append(pl.from_dicts(rows, schema=_SCHEMA).lazy())
 
-    df = pl.concat(chunks).with_columns(
+    lf = pl.concat(chunks).with_columns(
         pl.col("shares_outstanding_end").str.to_date(format="%Y-%m-%d", strict=False),
         pl.col("shares_outstanding_filed").str.to_date(format="%Y-%m-%d", strict=False),
         pl.col("public_float_end").str.to_date(format="%Y-%m-%d", strict=False),
         pl.col("public_float_filed").str.to_date(format="%Y-%m-%d", strict=False),
     )
-    return _enrich_with_float_price(df)
+    return _enrich_with_float_price(lf)
 
 
 class SecCompanyFactsSilver(Model):
     def __init__(
         self,
         sec_data_path: str | Path | None = None,
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
-        # TODO configure model dependencies
-        super().__init__(name="sec_company_facts", layer="silver")
+        super().__init__(
+            name="sec_company_facts", layer="silver", dataplatform_root=dataplatform_root
+        )
         self.sec_data_path = sec_data_path
-        self.configure_dependencies([CompanyTickersSilver, CandlesDailySilver])
 
-    def _build(self) -> pl.DataFrame:
+    def _build(self) -> pl.LazyFrame:
         if self.sec_data_path is None:
             raise ValueError("sec_data_path is required to build SecCompanyFactsSilver")
         return compute_from_source(self.sec_data_path)

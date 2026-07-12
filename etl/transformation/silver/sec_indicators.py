@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.model import Model
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 logger = get_logger(__name__)
 
@@ -43,7 +43,7 @@ def _extract_rows(file_path: Path) -> list[dict]:
     return rows
 
 
-def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
+def compute_from_source(sec_data_path: str | Path) -> pl.LazyFrame:
     sec_dir = Path(sec_data_path)
     json_files = sorted(sec_dir.glob("*.json"))
     logger.debug("Using source: %s", sec_dir)
@@ -55,7 +55,7 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
         for file_path in batch:
             rows.extend(_extract_rows(file_path))
         if rows:
-            chunks.append(pl.from_dicts(rows, schema=_SCHEMA))
+            chunks.append(pl.from_dicts(rows, schema=_SCHEMA).lazy())
 
     if not chunks:
         return pl.DataFrame(
@@ -66,7 +66,7 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
                 "description": pl.String,
                 "cik_count": pl.UInt32,
             }
-        )
+        ).lazy()
 
     return (
         pl.concat(chunks)
@@ -77,11 +77,17 @@ def compute_from_source(sec_data_path: str | Path) -> pl.DataFrame:
 
 
 class SecIndicatorsSilver(Model):
-    def __init__(self, sec_data_path: str | Path | None = None) -> None:
-        super().__init__(name="sec_indicators", layer="silver")
+    def __init__(
+        self,
+        sec_data_path: str | Path | None = None,
+        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+    ) -> None:
+        super().__init__(
+            name="sec_indicators", layer="silver", dataplatform_root=dataplatform_root
+        )
         self.sec_data_path = sec_data_path
 
-    def _build(self) -> pl.DataFrame:
+    def _build(self) -> pl.LazyFrame:
         if self.sec_data_path is None:
             raise ValueError("sec_data_path is required to build SecIndicatorsSilver")
         return compute_from_source(self.sec_data_path)

@@ -12,7 +12,7 @@ _PROJECT_ROOT = Path(__file__).parents[3]
 _RAW_SEC_DIR = _PROJECT_ROOT / "dataplatform" / "raw" / "sec"
 _TEST_OUTPUTS = _PROJECT_ROOT / "dataplatform" / "test_outputs"
 
-_df = SecIndicatorsSilver().load_from_disk()
+_df = SecIndicatorsSilver().read_from_disk().collect()
 
 
 def test_no_null_indicator():

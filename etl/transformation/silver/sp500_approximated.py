@@ -4,13 +4,13 @@ import polars as pl
 import yaml
 
 from etl.logger import get_logger
-from etl.transformation.model import Model, DATAPLATFORM_ROOT
+from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 
 logger = get_logger(__name__)
 
 
-def compute_from_source() -> pl.DataFrame:
+def compute_from_source() -> pl.LazyFrame:
     """Read stocks_daily and produce a per-date ranking of the top 600 stocks by
     float-adjusted market cap.
 
@@ -20,7 +20,7 @@ def compute_from_source() -> pl.DataFrame:
     float-adjusted market cap), and only the top 600 per date are kept.
 
     Returns:
-        Eager DataFrame with columns:
+        LazyFrame with columns:
 
         - ``timeframe``                 – trading date
         - ``symbol``                    – ticker symbol
@@ -33,7 +33,7 @@ def compute_from_source() -> pl.DataFrame:
 
     return (
         StocksDailySilver()
-        .load_from_disk()
+        .read_from_disk()
         .select(["timeframe", "symbol", "open", "estimated_float_shares"])
         .filter(
             pl.col("estimated_float_shares").is_not_null()
@@ -55,22 +55,34 @@ def compute_from_source() -> pl.DataFrame:
 
 
 class Sp500ApproximatedSilver(Model):
-    def __init__(self) -> None:
-        super().__init__(name="sp500_approximated", layer="silver")
+    def __init__(self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT) -> None:
+        super().__init__(
+            name="sp500_approximated", layer="silver", dataplatform_root=dataplatform_root
+        )
 
-    def _build(self) -> pl.DataFrame:
+    def _build(self) -> pl.LazyFrame:
         return compute_from_source()
 
     def store(self):
-        """Write only the latest date's snapshot as a CSV, sorted by rank ascending."""
-        layer_dir = Path(DATAPLATFORM_ROOT) / self.layer / self.name
+        """Write only the latest date's snapshot as a CSV, sorted by rank ascending.
+
+        Only the latest date's rows are ever collected into memory — the
+        rest of the lazy plan (every historical date's top-600 ranking) is
+        never materialized."""
+        if self._lf is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.store() called before build() or read_from_disk()."
+            )
+
+        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         layer_dir.mkdir(parents=True, exist_ok=True)
 
-        latest_date = self.df["timeframe"].max()
+        latest_date = self._lf.select(pl.col("timeframe").max()).collect().item()
         export = (
-            self.df.filter(pl.col("timeframe") == latest_date)
+            self._lf.filter(pl.col("timeframe") == latest_date)
             .drop("timeframe")
             .sort("rank")
+            .collect()
         )
 
         csv_path = layer_dir / f"{self.name}.csv"

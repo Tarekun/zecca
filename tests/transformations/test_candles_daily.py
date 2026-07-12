@@ -12,7 +12,7 @@ _RAW_ROOT = Path(__file__).parents[2] / "dataplatform" / "raw"
 
 
 def test_compute_candles_daily_nonempty():
-    result = load_ticker_daily(_RAW_ROOT)
+    result = load_ticker_daily(_RAW_ROOT).collect()
 
     assert result.height > 0, (
         "compute_candles_daily returned an empty DataFrame — "
