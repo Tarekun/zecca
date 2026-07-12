@@ -7,6 +7,7 @@ from etl.transformation.silver.sec_company_facts_padded import (
 )
 from etl.transformation.silver.sec_indicators import SecIndicatorsSilver
 from etl.transformation.silver.stocks_daily import StocksDailySilver
+from etl.transformation.silver.symbol_embeddings import SymbolEmbeddingsSilver
 
 __all__ = [
     "CandlesDailySilver",
@@ -16,4 +17,5 @@ __all__ = [
     "SecCompanyFactsPaddedSilver",
     "StocksDailySilver",
     "SecIndicatorsSilver",
+    "SymbolEmbeddingsSilver",
 ]
