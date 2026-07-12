@@ -141,6 +141,26 @@ def make_tensor_series(
     )
 
 
+def compute_normalization_stats(
+    series: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-feature-channel mean/std of a `series` tensor (shape `(N, C, L)`,
+    as returned by `make_tensor_series`), for z-score normalizing it. Fit this
+    on the training set only, then reuse the same stats to normalize
+    validation/test sets via `normalize_series` -- fitting separately per
+    split would leak each split's own scale into itself, and isn't how the
+    model sees data at inference time anyway."""
+    mean = series.mean(dim=(0, 2), keepdim=True)
+    std = series.std(dim=(0, 2), keepdim=True).clamp_min(1e-8)
+    return mean, std
+
+
+def normalize_series(
+    series: torch.Tensor, mean: torch.Tensor, std: torch.Tensor
+) -> torch.Tensor:
+    return (series - mean) / std
+
+
 class StocksDataset(Dataset):
     def __init__(
         self,
@@ -151,12 +171,22 @@ class StocksDataset(Dataset):
         lookahead_steps: int,
         thresholds: list[float],
         dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
+        normalization_stats: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> None:
+        """`normalization_stats`, if given, is a `(mean, std)` pair from a
+        prior call to `compute_normalization_stats` -- pass the training
+        set's own `normalization_stats` attribute here when building the
+        validation/test sets. If omitted (as for the training set itself),
+        stats are fit on this dataset's own `series`."""
         df = load_dataset(feature_list, start_date, end_date, dataplatform_root)
         df = append_future_returns(df, lookahead_steps, thresholds)
         self.series, self.embedding, self.labels = make_tensor_series(
             df, series_length
         )
+        self.normalization_stats = normalization_stats or compute_normalization_stats(
+            self.series
+        )
+        self.series = normalize_series(self.series, *self.normalization_stats)
 
     def __len__(self) -> int:
         return self.series.shape[0]
