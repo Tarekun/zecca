@@ -9,13 +9,7 @@ from etl.transformation.model import (
     Model,
     build_execution_plan,
 )
-from etl.transformation.silver.candles_daily import CandlesDailySilver
-from etl.transformation.silver.company_tickers import CompanyTickersSilver
-from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
-from etl.transformation.silver.sec_company_facts_padded import (
-    SecCompanyFactsPaddedSilver,
-)
-from etl.transformation.silver.stocks_daily import StocksDailySilver
+from etl.transformation.silver import *
 from etl.transformation.gold.stocks_daily import StocksDailyGold
 
 logger = get_logger(__name__)
@@ -56,6 +50,7 @@ def build_silver(config: Config):
         SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
+        SymbolEmbeddingsSilver(),
     ]
     if config.selected is not None:
         models = [m for m in models if m.name in config.selected]
