@@ -1,2 +1,10 @@
 ingestion_dir: dataplatform/raw
 incremental: True
+
+# models selected for daily processing
+selected:
+  - company_tickers
+  - candles_daily
+  - sec_company_facts
+  - sec_company_facts_padded
+  - stocks_daily
