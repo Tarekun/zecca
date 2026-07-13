@@ -47,4 +47,9 @@ class StocksDailySilver(Model):
             .with_columns(
                 (pl.col("evaluation") / pl.col("earnings")).alias("price_to_earnings")
             )
+            .with_columns(
+                (pl.col("estimated_float_shares") * pl.col("open")).alias(
+                    "float_adjusted_market_cap"
+                )
+            )
         )
