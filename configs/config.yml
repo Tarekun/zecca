@@ -8,3 +8,5 @@ selected:
   - sec_company_facts
   - sec_company_facts_padded
   - stocks_daily
+  - stocks_rankings
+  - good_symbols
