@@ -21,7 +21,7 @@ FINAL_DATE = date(2026, 1, 1)
 # TODO: properly discuss what values to set here
 TIME_WINDOW_MONTHS = 12
 TIME_SHIFT_MONTHS = 6
-EMBEDDING_SIZE = 16
+DEFAULT_EMBEDDING_SIZE = 16
 SEED = 16 * 29
 
 
@@ -54,9 +54,7 @@ def drop_incomplete_symbols(
     # them first so the grid below has at most one value per cell
     lf = lf.unique(subset=["symbol", "timeframe"], keep="first")
 
-    days = lf.select("timeframe").unique()
-    n_days = days.collect().height
-
+    n_days = lf.select("timeframe").unique().collect().height
     is_valid = (
         pl.col("log_return_1d").is_not_null() & pl.col("log_return_1d").is_finite()
     )
@@ -64,11 +62,10 @@ def drop_incomplete_symbols(
     kept_symbols = (
         lf.group_by("symbol")
         .agg(is_valid.sum().alias("n_valid"))
-        .with_columns((1 - pl.col("n_valid") / n_days).alias("missing_ratio"))
+        .with_columns((1 - (pl.col("n_valid") / n_days)).alias("missing_ratio"))
         .filter(pl.col("missing_ratio") <= max_missing_ratio)
         .select("symbol")
     )
-
     market_mean_by_day = (
         lf.filter(is_valid)
         .group_by("timeframe")
@@ -80,11 +77,10 @@ def drop_incomplete_symbols(
     # have a market mean at all -- a day with zero valid entries market-wide
     # (e.g. the very first day of the whole history, where log_return_1d is
     # undefined for everyone) can't be imputed and is dropped instead.
-    full_grid = kept_symbols.join(market_mean_by_day.select("timeframe"), how="cross")
+    full_grid = kept_symbols.join(market_mean_by_day, how="cross")
 
     return (
         full_grid.join(lf, on=["symbol", "timeframe"], how="left")
-        .join(market_mean_by_day, on="timeframe", how="left")
         .with_columns(
             pl.when(is_valid)
             .then(pl.col("log_return_1d"))
@@ -95,7 +91,13 @@ def drop_incomplete_symbols(
     )
 
 
-def iterate_svd_by_rolling(dataplatform_root: str) -> dict[date, dict[str, np.ndarray]]:
+def iterate_svd_by_rolling(
+    embedding_size: int, dataplatform_root: str
+) -> dict[date, dict[str, np.ndarray]]:
+    """Iterates a TruncatedSVD over over time windows of `TIME_WINDOW_MONTHS` and returns
+    all of the computed embeddings, indexed by the end date (first day not used) of the window
+    """
+
     symbol_embeddings = {}
 
     start_date = FIRST_DATE
@@ -118,7 +120,7 @@ def iterate_svd_by_rolling(dataplatform_root: str) -> dict[date, dict[str, np.nd
         R = (R - R.mean(axis=1, keepdims=True)) / (R.std(axis=1, keepdims=True) + 1e-8)
 
         embeddings = TruncatedSVD(
-            n_components=EMBEDDING_SIZE, random_state=SEED
+            n_components=embedding_size, random_state=SEED
         ).fit_transform(R)
         symbol_to_vec = dict(zip(symbols, embeddings))
         symbol_embeddings[end_date] = symbol_to_vec
@@ -140,7 +142,7 @@ def rotate_embedding_to_latest(
     embeddings sit in incompatible coordinate frames. We anchor on the most recent
     period and walk backwards, aligning each period to its already-aligned successor
     (adjacent rolling windows share the most symbols -> well-conditioned rotation,
-    which then composes back to the canonical frame)."""
+    which then composes back to the canonical frame)"""
     if not symbol_embeddings:
         return {}
 
@@ -156,39 +158,42 @@ def rotate_embedding_to_latest(
 
     for i in range(len(dates) - 2, -1, -1):
         cur = as_arrays(dates[i])
-        ref = aligned[dates[i + 1]]  # already in canonical frame
         # for direct-to-canonical instead of chaining, use: ref = aligned[dates[-1]]
-
+        ref = aligned[dates[i + 1]]  # already in canonical frame
         shared = sorted(cur.keys() & ref.keys())
         if len(shared) < min_shared:
-            warnings.warn(
-                f"{dates[i]}: only {len(shared)} shared symbols (<{min_shared}); left unrotated"
+            raise Exception(
+                f"Dates {dates[i]} and {dates[i+1]} only have {len(shared)} shared symbols (<{min_shared}). Procrustes cannot be applied"
             )
-            aligned[dates[i]] = cur
-            continue
 
         A = np.vstack([cur[s] for s in shared])  # this period, raw
         B = np.vstack([ref[s] for s in shared])  # successor, already aligned
         R, _ = orthogonal_procrustes(A, B)  # minimizes ||A @ R - B||, R orthogonal
 
-        aligned[dates[i]] = {
-            s: v @ R for s, v in cur.items()
-        }  # apply to ALL symbols in period
+        # apply to ALL symbols in period
+        aligned[dates[i]] = {s: v @ R for s, v in cur.items()}
 
     return aligned
 
 
 class SymbolEmbeddingsSilver(Model):
-    def __init__(self, dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT) -> None:
+    def __init__(
+        self,
+        embedding_size=DEFAULT_EMBEDDING_SIZE,
+        dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
+    ) -> None:
         super().__init__(
             name="symbol_embeddings",
             layer="silver",
             partitioning_columns=["not_before"],
             dataplatform_root=dataplatform_root,
         )
+        self.embedding_size = embedding_size
 
     def _build(self) -> pl.LazyFrame:
-        symbol_embeddings = iterate_svd_by_rolling(str(self.dataplatform_root))
+        symbol_embeddings = iterate_svd_by_rolling(
+            self.embedding_size, str(self.dataplatform_root)
+        )
         symbol_embeddings = rotate_embedding_to_latest(symbol_embeddings)
 
         frames = []

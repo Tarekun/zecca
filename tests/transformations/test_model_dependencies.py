@@ -14,6 +14,7 @@ from etl.transformation.silver.sec_company_facts_padded import (
     SecCompanyFactsPaddedSilver,
 )
 from etl.transformation.silver.sec_indicators import SecIndicatorsSilver
+from etl.transformation.silver import *
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 
 # Each of these models used to declare its dependencies by hand via
@@ -27,6 +28,7 @@ _CASES = [
     (StocksDailySilver(), {CandlesDailySilver, SecCompanyFactsPaddedSilver}),
     (SecIndicatorsGold(), {SecIndicatorsSilver}),
     (StocksDailyGold(), {StocksDailySilver}),
+    (SymbolEmbeddingsSilver(), {CandlesDailySilver}),
 ]
 
 
