@@ -5,11 +5,19 @@ from etl.config import Config
 from etl.etl import etl
 
 
-def load_config(operation: str, config_path: str = "configs/config.yml", selected: list[str] | None = None) -> Config:
+def load_config(
+    operation: str,
+    config_path: str = "configs/config.yml",
+    selected: list[str] | None = None,
+) -> Config:
     config_file = Path(config_path)
     with open(config_file, "r") as f:
         raw = yaml.safe_load(f)
-    return Config(operation=operation, selected=selected, **raw)
+
+    if selected is not None:
+        raw["selected"] = selected
+
+    return Config(operation=operation, **raw)
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,4 +46,5 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
     config = load_config(args.verb, args.config, args.select)
-    etl(config)
+    print(config)
+    # etl(config)
