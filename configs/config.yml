@@ -1,5 +1,6 @@
 ingestion_dir: dataplatform/raw
 incremental: True
+backup: True
 
 # models selected for daily processing
 selected:
