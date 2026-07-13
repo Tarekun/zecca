@@ -46,5 +46,4 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
     config = load_config(args.verb, args.config, args.select)
-    print(config)
-    # etl(config)
+    etl(config)
