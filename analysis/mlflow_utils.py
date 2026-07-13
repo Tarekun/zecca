@@ -1,0 +1,76 @@
+import dataclasses
+import functools
+import inspect
+import traceback
+import mlflow
+
+
+class ExperimentLogger:
+    def log_metric(self, key, value, step=None):
+        mlflow.log_metric(key, value, step=step)
+
+    def log_metrics(self, metrics: dict, step=None):
+        mlflow.log_metrics(metrics, step=step)
+
+    def log_model(self, model, flavor="pytorch"):
+        getattr(mlflow, flavor).log_model(model, "model")
+
+
+def _log_param_value(key, val):
+    if val is None or isinstance(val, (int, float, str, bool)):
+        mlflow.log_param(key, val)
+    elif isinstance(val, dict):
+        for k, v in val.items():
+            _log_param_value(f"{key}.{k}", v)
+    elif isinstance(val, type) or callable(val):
+        mlflow.log_param(key, getattr(val, "__name__", str(val)))
+    else:
+        mlflow.log_param(key, repr(val)[:250])
+
+
+def _log_dataclass_params(prefix, obj):
+    for f in dataclasses.fields(obj):
+        _log_param_value(f"{prefix}.{f.name}", getattr(obj, f.name))
+
+
+def mlflow_experiment(name, tags=None, log_config_params=()):
+    """
+    tags: dict, or callable(bound_arguments) -> dict, for dynamic tagging
+          (e.g. tagging with the model class or sweep override).
+    log_config_params: names of dataclass-valued params to flatten into
+          mlflow params automatically.
+    """
+
+    def decorator(fn):
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+
+            mlflow.set_experiment(name)
+            with mlflow.start_run():
+                resolved_tags = tags(bound.arguments) if callable(tags) else tags
+                if resolved_tags:
+                    mlflow.set_tags(resolved_tags)
+
+                for pname in log_config_params:
+                    val = bound.arguments.get(pname)
+                    if val is not None and dataclasses.is_dataclass(val):
+                        _log_dataclass_params(pname, val)
+
+                call_kwargs = dict(bound.arguments)
+                if "logger" in sig.parameters:
+                    call_kwargs["logger"] = ExperimentLogger()
+
+                try:
+                    return fn(**call_kwargs)
+                except Exception:
+                    mlflow.set_tag("status", "failed")
+                    mlflow.log_text(traceback.format_exc(), "traceback.txt")
+                    raise
+
+        return wrapper
+
+    return decorator

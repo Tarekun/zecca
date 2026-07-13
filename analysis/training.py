@@ -2,15 +2,15 @@ import copy
 import dataclasses
 import time
 from dataclasses import dataclass, field
-from typing import Callable, TYPE_CHECKING
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
+from typing import Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
 
+from analysis.mlflow_utils import mlflow_experiment, ExperimentLogger
 
 Metric = Callable[[torch.Tensor, torch.Tensor], float]
 
@@ -87,11 +87,18 @@ def _run_epoch(
     return avg_loss, elapsed, avg_metrics
 
 
+@mlflow_experiment(
+    name="return-window-classifier",
+    tags=lambda args: {"model_class": type(args["model"]).__name__},
+    log_config_params=("config", "network_config"),
+)
 def train(
     model: nn.Module,
     train_dataset: Dataset,
     val_dataset: Dataset | None,
     config: TrainingConfig,
+    network_config: "DataclassInstance | None" = None,  # logged only, not used
+    logger: ExperimentLogger | None = None,
 ) -> TrainingResult:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Running on device {device}")
@@ -114,8 +121,7 @@ def train(
     )
     early_stopping = val_loader is not None and config.patience > 0
 
-    train_losses: list[float] = []
-    val_losses: list[float] = []
+    train_losses, val_losses = [], []
     best_val_loss = float("inf")
     best_state = None
     epochs_without_improvement = 0
@@ -126,24 +132,28 @@ def train(
         )
         train_losses.append(train_loss)
 
-        val_loss = None
-        val_s = 0
+        val_loss, val_s = None, 0
         if val_loader is not None:
             val_loss, val_s, _ = _run_epoch(
                 model, val_loader, config.criterion, device, None
             )
             val_losses.append(val_loss)
 
-        print(
-            f"Epoch {i+1}/{config.num_epochs} ({train_s+val_s}s): train_loss={train_loss}"
-            + (f" val_loss={val_loss}" if val_loss is not None else "")
-        )
-
         if scheduler is not None:
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 scheduler.step(val_loss if val_loss is not None else train_loss)
             else:
                 scheduler.step()
+
+        print(
+            f"Epoch {i+1}/{config.num_epochs} ({train_s+val_s}s): train_loss={train_loss}"
+            + (f" val_loss={val_loss}" if val_loss is not None else "")
+        )
+        if logger is not None:
+            metrics = {"train_loss": train_loss}
+            if val_loss is not None:
+                metrics["val_loss"] = val_loss
+            logger.log_metrics(metrics, step=i)
 
         if early_stopping and val_loss is not None:
             if val_loss < best_val_loss:
@@ -157,6 +167,11 @@ def train(
 
     if best_state is not None:
         model.load_state_dict(best_state)
+
+    if logger is not None:
+        logger.log_model(model, flavor="pytorch")
+        if early_stopping:
+            logger.log_metric("best_val_loss", best_val_loss)
 
     return TrainingResult(
         train_losses=train_losses,
@@ -206,7 +221,13 @@ def sweep(
         train_cfg = dataclasses.replace(train_config, **train_override)
 
         model = model_cls(net_cfg)
-        result = train(model, train_dataset, val_dataset, train_cfg)
+        result = train(
+            model,
+            train_dataset,
+            val_dataset,
+            train_cfg,
+            network_config=net_cfg,
+        )
 
         results.append(
             {
