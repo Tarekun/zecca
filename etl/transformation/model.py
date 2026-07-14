@@ -2,10 +2,12 @@ import ast
 import gc
 import graphlib
 import inspect
+import shutil
 import textwrap
 from abc import ABC, abstractmethod
 from pathlib import Path
 import polars as pl
+from typing import Literal
 import yaml
 
 from etl.logger import get_logger
@@ -31,6 +33,9 @@ class Model(ABC):
         self.dataplatform_root = dataplatform_root
         self._configured_dependencies: list[type] | None = None
         self._discovered_dependencies: list[type] | None = None
+        # TODO: currently models only support full refresh processing
+        # this variable was defined anyway as a future proof flag for store FR processing
+        self.strategy: Literal["fullrefresh"] = "fullrefresh"
 
     def configure_dependencies(self, dependencies: list[type]) -> None:
         """Explicitly overrides dependency auto-discovery (see the `dependencies`
@@ -106,29 +111,27 @@ class Model(ABC):
                 f"{self.__class__.__name__}.store() called before build() or read_from_disk()."
             )
 
-        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
-        layer_dir.mkdir(parents=True, exist_ok=True)
+        model_dir = Path(self.dataplatform_root) / self.layer / self.name
+        if model_dir.exists() and self.strategy == "fullrefresh":
+            # sink_parquet only adds files so we need to clean previous
+            shutil.rmtree(model_dir)
+        model_dir.mkdir(parents=True, exist_ok=True)
 
-        # Streaming path: sink_parquet executes the lazy plan in fixed-size
-        # batches and writes directly to disk, so the full frame is never
-        # held in memory at once.
         if self.partitioning_columns:
             self._lf.sink_parquet(
-                pl.PartitionBy(layer_dir, key=self.partitioning_columns)
+                pl.PartitionBy(model_dir, key=self.partitioning_columns)
             )
             row_count = (
                 pl.scan_parquet(
-                    str(layer_dir / "**" / "*.parquet"), hive_partitioning=True
+                    str(model_dir / "**" / "*.parquet"), hive_partitioning=True
                 )
                 .select(pl.len())
                 .collect()
                 .item()
             )
         else:
-            output_path = layer_dir / f"{self.name}.parquet"
+            output_path = model_dir / f"{self.name}.parquet"
             self._lf.sink_parquet(output_path)
-            # Counting rows off the written parquet's footer metadata is a
-            # metadata-only read, not a full re-scan, so this stays cheap.
             row_count = pl.scan_parquet(output_path).select(pl.len()).collect().item()
 
         schema_data = {
@@ -141,8 +144,7 @@ class Model(ABC):
                 for col, dtype in self._lf.schema.items()
             ],
         }
-
-        schema_path = layer_dir / f"{self.name}_schema.yaml"
+        schema_path = model_dir / f"{self.name}_schema.yaml"
         with open(schema_path, "w") as f:
             yaml.dump(schema_data, f, default_flow_style=False, sort_keys=False)
 

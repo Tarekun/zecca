@@ -27,7 +27,9 @@ def _backup_transformed():
         src = root / layer
         if src.exists():
             dst = backup_dir / layer
-            shutil.copytree(src, dst, dirs_exist_ok=True)
+            # TODO: if incremental processing is ever supported switch this back to a copy
+            # shutil.copytree(src, dst, dirs_exist_ok=True)
+            shutil.move(src, dst)
             logger.info("Backed up %s → %s", src, dst)
 
     cutoff = datetime.now() - timedelta(days=30)
