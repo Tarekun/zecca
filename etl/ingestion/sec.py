@@ -2,14 +2,15 @@ import requests
 import zipfile
 import io
 import os
+
 from etl.logger import get_logger
+from etl.config import Config
 
 logger = get_logger(__name__)
 
 
 # TODO in caso di IP ban mettere qualcosa di legit qua
 USER_AGENT = "Zecca s@a.net"
-RAW_LAYER = "./dataplatform/raw"
 
 
 def download_and_unzip(url: str, dest_path: str, user_agent: str) -> None:
@@ -58,21 +59,21 @@ def download_and_unzip(url: str, dest_path: str, user_agent: str) -> None:
     logger.info(f"Extraction completed: {dest_path}")
 
 
-def download_company_facts() -> None:
+def download_company_facts(config: Config) -> None:
     url = "https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip"
     logger.info("Starting download and extraction of company facts...")
 
-    download_and_unzip(url, f"{RAW_LAYER}/sec", USER_AGENT)
+    download_and_unzip(url, f"{config.ingestion_dir}/sec", USER_AGENT)
 
 
-def download_sec_tickers() -> None:
-    os.makedirs(RAW_LAYER, exist_ok=True)
+def download_sec_tickers(config: Config) -> None:
+    os.makedirs(config.ingestion_dir, exist_ok=True)
     headers = {"User-Agent": USER_AGENT}  # scegliere una mail da sostituire con ***
     r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers)
     r.raise_for_status()
     data = r.content
 
-    dest_file = os.path.join(RAW_LAYER, "company_tickers.json")
+    dest_file = os.path.join(config.ingestion_dir, "company_tickers.json")
     with open(dest_file, "wb") as f:
         f.write(data)
 
