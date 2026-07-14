@@ -10,7 +10,7 @@ from etl.transformation.model import (
     build_execution_plan,
 )
 from etl.transformation.silver import *
-from etl.transformation.gold.stocks_daily import StocksDailyGold
+from etl.transformation.gold import *
 
 logger = get_logger(__name__)
 
@@ -53,6 +53,8 @@ def build_silver(config: Config):
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
         SymbolEmbeddingsSilver(),
+        StocksRankingsSilver(),
+        GoodSymbolsSilver(),
     ]
     if config.selected is not None:
         models = [m for m in models if m.name in config.selected]
@@ -62,7 +64,7 @@ def build_silver(config: Config):
 
 
 def build_gold(config: Config):
-    models: list[Model] = [StocksDailyGold()]
+    models: list[Model] = [StocksDailyGold(), Sp500ApproximatedGold()]
     if config.selected is not None:
         models = [m for m in models if m.name in config.selected]
 
