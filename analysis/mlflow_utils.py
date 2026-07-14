@@ -2,7 +2,13 @@ import dataclasses
 import functools
 import inspect
 import traceback
+from pathlib import Path
+
 import mlflow
+
+# pinned to an absolute, repo-rooted path so every experiment lands in the same
+# store regardless of the cwd a script/notebook happens to be launched from
+mlflow.set_tracking_uri(f"sqlite:///{Path(__file__).resolve().parent.parent / 'mlflow.db'}")
 
 
 class ExperimentLogger:
@@ -37,8 +43,8 @@ def mlflow_experiment(name, tags=None, log_config_params=()):
     """
     tags: dict, or callable(bound_arguments) -> dict, for dynamic tagging
           (e.g. tagging with the model class or sweep override).
-    log_config_params: names of dataclass-valued params to flatten into
-          mlflow params automatically.
+    log_config_params: names of dataclass- or dict-valued params to flatten
+          into mlflow params automatically.
     """
 
     def decorator(fn):
@@ -57,8 +63,12 @@ def mlflow_experiment(name, tags=None, log_config_params=()):
 
                 for pname in log_config_params:
                     val = bound.arguments.get(pname)
-                    if val is not None and dataclasses.is_dataclass(val):
+                    if val is None:
+                        continue
+                    if dataclasses.is_dataclass(val):
                         _log_dataclass_params(pname, val)
+                    else:
+                        _log_param_value(pname, val)
 
                 call_kwargs = dict(bound.arguments)
                 if "logger" in sig.parameters:

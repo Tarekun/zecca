@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/home/danie/codice/zecca/.venv/bin/python -c ' *)"
+    ]
+  }
+}
