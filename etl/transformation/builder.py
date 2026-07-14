@@ -70,7 +70,9 @@ def build_gold(config: Config):
 
 def build_everything(config: Config):
     try:
-        _backup_transformed()
+        if config.backup:
+            _backup_transformed()
+
         build_silver(config)
         build_gold(config)
     except Exception as e:
