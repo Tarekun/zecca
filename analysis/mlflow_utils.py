@@ -1,14 +1,21 @@
 import dataclasses
 import functools
 import inspect
+import os
 import traceback
 from pathlib import Path
 
+from dotenv import load_dotenv
 import mlflow
 
-# pinned to an absolute, repo-rooted path so every experiment lands in the same
-# store regardless of the cwd a script/notebook happens to be launched from
-mlflow.set_tracking_uri(f"sqlite:///{Path(__file__).resolve().parent.parent / 'mlflow.db'}")
+load_dotenv()
+
+# defaults to an absolute, repo-rooted local store so every experiment lands in
+# the same place regardless of the cwd a script/notebook happens to be launched
+# from. Set MLFLOW_TRACKING_URI (e.g. in a .env file) to a server URL -- such
+# as the one for the locally-hosted mlflow instance -- to log there instead.
+_LOCAL_TRACKING_URI = f"sqlite:///{Path(__file__).resolve().parent.parent / 'mlflow.db'}"
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", _LOCAL_TRACKING_URI))
 
 
 class ExperimentLogger:
