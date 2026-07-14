@@ -52,4 +52,9 @@ class StocksDailySilver(Model):
                     "float_adjusted_market_cap"
                 )
             )
+            .with_columns(
+                (pl.col("earnings") / pl.col("shares_outstanding")).alias(
+                    "earnings_per_share"
+                )
+            )
         )
