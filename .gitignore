@@ -17,3 +17,6 @@ etl/dbt/package-lock.yml
 etl/dbt/target
 
 docs/.obsidian
+
+# all hail our overlords
+.claude
