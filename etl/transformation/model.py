@@ -24,6 +24,7 @@ class Model(ABC):
         layer: str,
         partitioning_columns: list[str] = [],
         dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+        kind: Literal["table", "view"] = "table",
     ) -> None:
         super().__init__()
         self.name = name
@@ -36,6 +37,7 @@ class Model(ABC):
         # TODO: currently models only support full refresh processing
         # this variable was defined anyway as a future proof flag for store FR processing
         self.strategy: Literal["fullrefresh"] = "fullrefresh"
+        self.kind = kind
 
     def configure_dependencies(self, dependencies: list[type]) -> None:
         """Explicitly overrides dependency auto-discovery (see the `dependencies`
@@ -57,7 +59,7 @@ class Model(ABC):
     def _build(self) -> pl.LazyFrame:
         pass
 
-    def build(self) -> None:
+    def build(self) -> pl.LazyFrame:
         logger.info("Building from source data model %s", self.id)
         self._lf = self._build()
         try:
@@ -66,6 +68,7 @@ class Model(ABC):
             logger.exception("%s build plan is invalid", self.id)
             raise
         logger.info("%s build plan ready and validated", self.id)
+        return self._lf
 
     @property
     def df(self) -> pl.DataFrame:
@@ -126,10 +129,10 @@ class Model(ABC):
             shutil.rmtree(model_dir)
         model_dir.mkdir(parents=True, exist_ok=True)
 
+        view_skip_log = (
+            f"{self.layer}.{self.name} is of VIEW kind, skipping disk storage"
+        )
         if self.partitioning_columns:
-            self._lf.sink_parquet(
-                pl.PartitionBy(model_dir, key=self.partitioning_columns)
-            )
             row_count = (
                 pl.scan_parquet(
                     str(model_dir / "**" / "*.parquet"), hive_partitioning=True
@@ -138,10 +141,20 @@ class Model(ABC):
                 .collect()
                 .item()
             )
+            if self.kind == "view":
+                logger.info(view_skip_log)
+            else:
+                self._lf.sink_parquet(
+                    pl.PartitionBy(model_dir, key=self.partitioning_columns)
+                )
+
         else:
             output_path = model_dir / f"{self.name}.parquet"
-            self._lf.sink_parquet(output_path)
             row_count = pl.scan_parquet(output_path).select(pl.len()).collect().item()
+            if self.kind == "view":
+                logger.info(view_skip_log)
+            else:
+                self._lf.sink_parquet(output_path)
 
         schema_data = {
             "model": self.name,
@@ -185,14 +198,20 @@ class Model(ABC):
         """Instead of computing the dataset from sources, scans it from
         the current version on disk as it gets saved by self.store"""
 
-        layer_dir = Path(self.dataplatform_root) / self.layer / self.name
-        if self.partitioning_columns:
-            glob_path = str(layer_dir / "**" / "*.parquet")
-            self._lf = pl.scan_parquet(glob_path, hive_partitioning=True)
-        else:
-            self._lf = pl.scan_parquet(layer_dir / f"{self.name}.parquet")
+        if self.kind == "view":
+            logger.info(
+                f"{self.layer}.{self.name} is of VIEW kind and cannot be read from disk, defaulting to .build() call"
+            )
+            return self.build()
 
-        return self._lf
+        else:
+            layer_dir = Path(self.dataplatform_root) / self.layer / self.name
+            if self.partitioning_columns:
+                glob_path = str(layer_dir / "**" / "*.parquet")
+                self._lf = pl.scan_parquet(glob_path, hive_partitioning=True)
+            else:
+                self._lf = pl.scan_parquet(layer_dir / f"{self.name}.parquet")
+            return self._lf
 
 
 def _resolve_ast_node(node: ast.AST, scope: dict):
