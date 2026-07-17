@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-
 import polars as pl
 import pytest
 
@@ -8,16 +7,16 @@ sys.path.append(str(Path(__file__).parents[3]))
 
 from etl.transformation.silver.sec_indicators import SecIndicatorsSilver
 
-_PROJECT_ROOT = Path(__file__).parents[3]
-_RAW_SEC_DIR = _PROJECT_ROOT / "dataplatform" / "raw" / "sec"
-_TEST_OUTPUTS = _PROJECT_ROOT / "dataplatform" / "test_outputs"
+PROJECT_ROOT = Path(__file__).parents[3]
+RAW_SEC_DIR = PROJECT_ROOT / "dataplatform" / "raw" / "sec"
+TEST_OUTPUTS = PROJECT_ROOT / "dataplatform" / "test_outputs"
 
-_df = SecIndicatorsSilver().read_from_disk().collect()
+lf = SecIndicatorsSilver().read_from_disk()
 
 
 def test_no_null_indicator():
     """No row in sec_indicators should have a null indicator key."""
-    null_rows = _df.filter(pl.col("indicator").is_null())
+    null_rows = lf.select("indicator").filter(pl.col("indicator").is_null()).collect()
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null indicator.\n"
@@ -31,11 +30,13 @@ def test_no_null_label():
     Indicators missing a label are written to
     dataplatform/test_outputs/sec_indicators_missing_label.csv for inspection.
     """
-    null_rows = _df.filter(pl.col("label").is_null())
+    null_rows = (
+        lf.select(["indicator", "label"]).filter(pl.col("label").is_null()).collect()
+    )
 
     if null_rows.height > 0:
-        _TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
-        null_rows.write_csv(_TEST_OUTPUTS / "sec_indicators_missing_label.csv")
+        TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        null_rows.write_csv(TEST_OUTPUTS / "sec_indicators_missing_label.csv")
 
         pytest.fail(
             f"Found {null_rows.height} indicator(s) with a null label.\n"
@@ -47,7 +48,11 @@ def test_no_null_label():
 def test_namespace_values_are_valid():
     """All namespace values must be either 'dei' or 'us-gaap'."""
     valid = {"dei", "us-gaap"}
-    invalid = _df.filter(~pl.col("namespace").is_in(list(valid)))
+    invalid = (
+        lf.select(["indicator", "namespace"])
+        .filter(~pl.col("namespace").is_in(list(valid)))
+        .collect()
+    )
 
     assert invalid.height == 0, (
         f"Found {invalid.height} row(s) with an unexpected namespace value.\n"
@@ -57,7 +62,9 @@ def test_namespace_values_are_valid():
 
 def test_cik_count_positive():
     """Every row must have a cik_count of at least 1."""
-    bad_rows = _df.filter(pl.col("cik_count") < 1)
+    bad_rows = (
+        lf.select(["indicator", "cik_count"]).filter(pl.col("cik_count") < 1).collect()
+    )
 
     assert bad_rows.height == 0, (
         f"Found {bad_rows.height} row(s) with cik_count < 1.\n"
@@ -67,8 +74,12 @@ def test_cik_count_positive():
 
 def test_cik_count_does_not_exceed_source_file_count():
     """No indicator's cik_count can exceed the total number of source SEC JSON files."""
-    file_count = len(list(_RAW_SEC_DIR.glob("*.json")))
-    over_count = _df.filter(pl.col("cik_count") > file_count)
+    file_count = len(list(RAW_SEC_DIR.glob("*.json")))
+    over_count = (
+        lf.select(["indicator", "cik_count"])
+        .filter(pl.col("cik_count") > file_count)
+        .collect()
+    )
 
     assert over_count.height == 0, (
         f"Found {over_count.height} indicator(s) with cik_count > {file_count} (total source files).\n"
@@ -80,9 +91,11 @@ def test_no_duplicate_tuples():
     """Each (namespace, indicator, label, description) tuple must be unique."""
     key_cols = ["namespace", "indicator", "label", "description"]
     duplicates = (
-        _df.group_by(key_cols)
+        lf.select(key_cols)
+        .group_by(key_cols)
         .agg(pl.len().alias("occurrences"))
         .filter(pl.col("occurrences") > 1)
+        .collect()
     )
 
     assert duplicates.height == 0, (

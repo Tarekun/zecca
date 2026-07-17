@@ -1,12 +1,8 @@
 from pathlib import Path
-
 import polars as pl
 
-from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.stocks_rankings import StocksRankingsSilver
-
-logger = get_logger(__name__)
 
 RANK_THRESHOLD = 2500
 

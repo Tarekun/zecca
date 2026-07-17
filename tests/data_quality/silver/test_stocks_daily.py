@@ -9,15 +9,16 @@ sys.path.append(str(Path(__file__).parents[3]))
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 
-_TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
+TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
 
-_df = StocksDailySilver().read_from_disk().collect()
-_candles = CandlesDailySilver("").read_from_disk().collect()
+lf = StocksDailySilver().read_from_disk()
+candles_lf = CandlesDailySilver("").read_from_disk()
 
 
 def test_no_null_symbol():
     """No row in stocks_daily should have a null symbol."""
-    null_rows = _df.filter(pl.col("symbol").is_null())
+
+    null_rows = lf.select("symbol").filter(pl.col("symbol").is_null()).collect()
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null symbol.\n"
@@ -31,17 +32,18 @@ def test_all_candles_pairs_present():
     Missing pairs are written to
     dataplatform/test_outputs/stocks_daily_missing_pairs.csv for inspection.
     """
-    candles_pairs = _candles.select(["symbol", "timeframe"]).unique()
-    stocks_pairs = _df.select(["symbol", "timeframe"]).unique()
+    candles_pairs = candles_lf.select(["symbol", "timeframe"]).unique()
+    stocks_pairs = lf.select(["symbol", "timeframe"]).unique()
 
-    missing = candles_pairs.join(stocks_pairs, on=["symbol", "timeframe"], how="anti")
+    missing = (
+        candles_pairs.join(stocks_pairs, on=["symbol", "timeframe"], how="anti")
+        .sort(["symbol", "timeframe"])
+        .collect()
+    )
 
     if missing.height > 0:
-        _TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
-        (
-            missing.sort(["symbol", "timeframe"])
-            .write_csv(_TEST_OUTPUTS / "stocks_daily_missing_pairs.csv")
-        )
+        TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        missing.write_csv(TEST_OUTPUTS / "stocks_daily_missing_pairs.csv")
 
         affected_symbols = missing["symbol"].drop_nulls().unique().sort().to_list()
         pytest.fail(

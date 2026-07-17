@@ -1,9 +1,4 @@
 from pathlib import Path
-
-from etl.logger import get_logger
-
-logger = get_logger(__name__)
-
 import polars as pl
 
 from etl.transformation.indicators import (
@@ -45,7 +40,6 @@ def compute_from_source(yfinance_data_path: str | Path) -> pl.LazyFrame:
         - RSI (14-step): ``rsi``, ``overbought``, ``oversold``
         - RSI (other periods): ``rsi_1d/1w/1m/30_steps/1q/6m/1y``
     """
-    logger.debug("Using source: %s", yfinance_data_path)
     df = load_ticker_daily(yfinance_data_path)
 
     df = (

@@ -1,13 +1,10 @@
 import polars as pl
 
-from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.sec_company_facts_padded import (
     SecCompanyFactsPaddedSilver,
 )
-
-logger = get_logger(__name__)
 
 
 class StocksDailySilver(Model):

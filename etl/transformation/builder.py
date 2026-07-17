@@ -45,8 +45,8 @@ def _backup_transformed():
             logger.info("Removed stale backup: %s", entry)
 
 
-def build_silver(config: Config):
-    models: list[Model] = [
+def build_models(config: Config, layer: str):
+    models = [
         CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
         CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
         SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
@@ -55,18 +55,15 @@ def build_silver(config: Config):
         SymbolEmbeddingsSilver(),
         StocksRankingsSilver(),
         GoodSymbolsSilver(),
+        StocksDailyGold(),
+        Sp500ApproximatedGold(),
     ]
+    models = [m for m in models if m.layer == layer]
+
     if config.selected is not None:
         models = [m for m in models if m.name in config.selected]
-
-    for model in build_execution_plan(models):
-        model.build_store_free()
-
-
-def build_gold(config: Config):
-    models: list[Model] = [StocksDailyGold(), Sp500ApproximatedGold()]
-    if config.selected is not None:
-        models = [m for m in models if m.name in config.selected]
+    if config.skip is not None:
+        models = [m for m in models if m.name not in config.skip]
 
     for model in build_execution_plan(models):
         model.build_store_free()
@@ -77,8 +74,8 @@ def build_everything(config: Config):
         if config.backup:
             _backup_transformed()
 
-        build_silver(config)
-        build_gold(config)
+        build_models(config, "silver")
+        build_models(config, "gold")
     except Exception as e:
         logger.error("Build failed: %s", e)
         raise e

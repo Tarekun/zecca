@@ -8,16 +8,17 @@ sys.path.append(str(Path(__file__).parents[3]))
 
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 
-_PROJECT_ROOT = Path(__file__).parents[3]
-_RAW_SEC_DIR = _PROJECT_ROOT / "dataplatform" / "raw" / "sec"
-_TEST_OUTPUTS = _PROJECT_ROOT / "dataplatform" / "test_outputs"
+PROJECT_ROOT = Path(__file__).parents[3]
+RAW_SEC_DIR = PROJECT_ROOT / "dataplatform" / "raw" / "sec"
+TEST_OUTPUTS = PROJECT_ROOT / "dataplatform" / "test_outputs"
 
-_df = SecCompanyFactsSilver().read_from_disk().collect()
+lf = SecCompanyFactsSilver().read_from_disk()
 
 
 def test_no_null_cik():
     """No row in sec_company_facts should have a null CIK."""
-    null_rows = _df.filter(pl.col("cik").is_null())
+
+    null_rows = lf.select("cik").filter(pl.col("cik").is_null()).collect()
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null CIK.\n"
@@ -27,9 +28,10 @@ def test_no_null_cik():
 
 def test_cik_count_matches_file_count():
     """The number of distinct CIK values in the silver model must equal the number
-    of source JSON files under dataplatform/raw/sec — one row (possibly null) per file."""
-    file_count = len(list(_RAW_SEC_DIR.glob("*.json")))
-    distinct_ciks = _df["cik"].n_unique()
+    of source JSON files under dataplatform/raw/sec — one row (possibly null) per file.
+    """
+    file_count = len(list(RAW_SEC_DIR.glob("*.json")))
+    distinct_ciks = lf.select(pl.col("cik").n_unique()).collect().item()
 
     assert distinct_ciks == file_count, (
         f"Expected {file_count} distinct CIK values (one per source file) "
@@ -44,16 +46,24 @@ def test_each_cik_has_at_least_one_metric():
     CIKs with no metric data are written to
     dataplatform/test_outputs/sec_company_facts_missing_val.csv for inspection.
     """
-    ciks_with_data = _df.filter(
-        pl.col("shares_outstanding").is_not_null() | pl.col("non_affiliate_valuation").is_not_null()
-    ).select("cik").unique()
-    all_ciks = _df.select("cik").unique()
+    metrics_lf = lf.select(["cik", "shares_outstanding", "non_affiliate_valuation"])
+    ciks_with_data = (
+        metrics_lf.filter(
+            pl.col("shares_outstanding").is_not_null()
+            | pl.col("non_affiliate_valuation").is_not_null()
+        )
+        .select("cik")
+        .unique()
+    )
+    all_ciks = metrics_lf.select("cik").unique()
 
-    missing_val = all_ciks.join(ciks_with_data, on="cik", how="anti").sort("cik")
+    missing_val = (
+        all_ciks.join(ciks_with_data, on="cik", how="anti").sort("cik").collect()
+    )
 
     if missing_val.height > 0:
-        _TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
-        missing_val.write_csv(_TEST_OUTPUTS / "sec_company_facts_missing_val.csv")
+        TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        missing_val.write_csv(TEST_OUTPUTS / "sec_company_facts_missing_val.csv")
 
         affected = missing_val["cik"].drop_nulls().to_list()
         pytest.fail(

@@ -11,8 +11,8 @@ from etl.transformation.silver.symbol_embeddings import SymbolEmbeddingsSilver
 
 _TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
 
-_df = SymbolEmbeddingsSilver().read_from_disk().collect()
-_EMBEDDING_COLS = [c for c in _df.columns if c.startswith("e")]
+_lf = SymbolEmbeddingsSilver().read_from_disk()
+_EMBEDDING_COLS = [c for c in _lf.collect_schema().names() if c.startswith("e")]
 
 # Large-cap symbols spanning distinct sectors (tech, financial, energy) that are
 # expected to be present in every not_before partition of the dataset.
@@ -22,7 +22,7 @@ _MIN_ADJACENT_SIMILARITY = 0.75
 
 def test_no_null_symbol():
     """No row in symbol_embeddings should have a null symbol."""
-    null_rows = _df.filter(pl.col("symbol").is_null())
+    null_rows = _lf.select("symbol").filter(pl.col("symbol").is_null()).collect()
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null symbol.\n"
@@ -32,7 +32,7 @@ def test_no_null_symbol():
 
 def test_no_null_not_before():
     """No row in symbol_embeddings should have a null not_before."""
-    null_rows = _df.filter(pl.col("not_before").is_null())
+    null_rows = _lf.select("not_before").filter(pl.col("not_before").is_null()).collect()
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null not_before.\n"
@@ -43,9 +43,11 @@ def test_no_null_not_before():
 def test_not_before_symbol_is_a_key():
     """(not_before, symbol) must uniquely identify a row."""
     duplicates = (
-        _df.group_by(["not_before", "symbol"])
+        _lf.select(["not_before", "symbol"])
+        .group_by(["not_before", "symbol"])
         .agg(pl.len().alias("occurrences"))
         .filter(pl.col("occurrences") > 1)
+        .collect()
     )
 
     assert duplicates.height == 0, (
@@ -59,7 +61,9 @@ def test_embedding_columns_are_finite():
     is_bad = pl.any_horizontal(
         [pl.col(c).is_null() | ~pl.col(c).is_finite() for c in _EMBEDDING_COLS]
     )
-    bad_rows = _df.filter(is_bad)
+    bad_rows = (
+        _lf.select(["symbol", "not_before", *_EMBEDDING_COLS]).filter(is_bad).collect()
+    )
 
     assert bad_rows.height == 0, (
         f"Found {bad_rows.height} row(s) with a null/non-finite embedding component.\n"
@@ -71,11 +75,13 @@ def test_well_known_symbols_present_in_every_partition():
     """Sanity check on the fixture set itself: each well-known symbol must be
     present in every not_before partition, otherwise the adjacency test below
     would silently skip periods instead of comparing them."""
-    n_partitions = _df.select("not_before").unique().height
+    n_partitions = _lf.select("not_before").unique().collect().height
     counts = (
-        _df.filter(pl.col("symbol").is_in(_WELL_KNOWN_SYMBOLS))
+        _lf.select(["symbol", "not_before"])
+        .filter(pl.col("symbol").is_in(_WELL_KNOWN_SYMBOLS))
         .group_by("symbol")
         .agg(pl.len().alias("n_partitions"))
+        .collect()
     )
 
     missing = counts.filter(pl.col("n_partitions") < n_partitions)
@@ -99,12 +105,21 @@ def test_well_known_symbols_stable_across_adjacent_partitions():
     dataplatform/test_outputs/symbol_embeddings_low_adjacent_similarity.csv
     for inspection.
     """
-    dates = sorted(_df.select("not_before").unique().to_series().to_list())
+    dates = sorted(_lf.select("not_before").unique().collect().to_series().to_list())
+
+    # Only the well-known symbols' rows are ever collected — a small slice
+    # compared to the full universe of symbols across all partitions.
+    df = (
+        _lf.filter(pl.col("symbol").is_in(_WELL_KNOWN_SYMBOLS))
+        .select(["symbol", "not_before", *_EMBEDDING_COLS])
+        .collect()
+    )
+
     violations = []
 
     for symbol in _WELL_KNOWN_SYMBOLS:
         sub = (
-            _df.filter(pl.col("symbol") == symbol)
+            df.filter(pl.col("symbol") == symbol)
             .sort("not_before")
             .select(["not_before", *_EMBEDDING_COLS])
         )

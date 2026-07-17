@@ -6,16 +6,19 @@ import pytest
 
 sys.path.append(str(Path(__file__).parents[3]))
 
-from etl.transformation.silver.sec_company_facts_padded import SecCompanyFactsPaddedSilver
+from etl.transformation.silver.sec_company_facts_padded import (
+    SecCompanyFactsPaddedSilver,
+)
 
-_TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
+TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
 
-_df = SecCompanyFactsPaddedSilver().read_from_disk().collect()
+lf = SecCompanyFactsPaddedSilver().read_from_disk()
 
 
 def test_no_null_cik():
     """No row in sec_company_facts_padded should have a null CIK."""
-    null_rows = _df.filter(pl.col("cik").is_null())
+
+    null_rows = lf.select("cik").filter(pl.col("cik").is_null()).collect()
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null CIK.\n"
@@ -29,12 +32,16 @@ def test_no_null_ticker():
     CIKs with no matching ticker are written to
     dataplatform/test_outputs/sec_company_facts_padded_missing_ticker.csv.
     """
-    null_rows = _df.filter(pl.col("ticker").is_null())
+    null_rows = (
+        lf.select(["cik", "ticker"]).filter(pl.col("ticker").is_null()).collect()
+    )
 
     if null_rows.height > 0:
         missing_ciks = null_rows.select("cik").unique().sort("cik")
-        _TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
-        missing_ciks.write_csv(_TEST_OUTPUTS / "sec_company_facts_padded_missing_ticker.csv")
+        TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        missing_ciks.write_csv(
+            TEST_OUTPUTS / "sec_company_facts_padded_missing_ticker.csv"
+        )
 
         affected = missing_ciks["cik"].drop_nulls().to_list()
         pytest.fail(
@@ -52,7 +59,8 @@ def test_reference_date_continuity_per_cik():
     CIKs with gaps are written to
     dataplatform/test_outputs/sec_company_facts_padded_date_gaps.csv.
     """
-    bounds = _df.group_by("cik").agg(
+    dates_lf = lf.select(["cik", "reference_date"])
+    bounds = dates_lf.group_by("cik").agg(
         pl.col("reference_date").min().alias("first_date"),
         pl.col("reference_date").max().alias("last_date"),
     )
@@ -66,10 +74,8 @@ def test_reference_date_continuity_per_cik():
         .explode("reference_date")
         .select(["cik", "reference_date"])
     )
-
-    actual = _df.select(["cik", "reference_date"]).unique()
-
-    missing = expected.join(actual, on=["cik", "reference_date"], how="anti")
+    actual = dates_lf.unique()
+    missing = expected.join(actual, on=["cik", "reference_date"], how="anti").collect()
 
     if missing.height > 0:
         counts = (
@@ -78,8 +84,8 @@ def test_reference_date_continuity_per_cik():
             .sort("missing_dates", descending=True)
         )
 
-        _TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
-        counts.write_csv(_TEST_OUTPUTS / "sec_company_facts_padded_date_gaps.csv")
+        TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        counts.write_csv(TEST_OUTPUTS / "sec_company_facts_padded_date_gaps.csv")
 
         affected = counts["cik"].drop_nulls().to_list()
         pytest.fail(
