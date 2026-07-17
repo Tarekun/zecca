@@ -45,31 +45,34 @@ def _backup_transformed():
             logger.info("Removed stale backup: %s", entry)
 
 
-def build_silver(config: Config):
-    models: list[Model] = [
-        CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
-        CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
-        SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
-        SecCompanyFactsPaddedSilver(),
-        StocksDailySilver(),
-        SymbolEmbeddingsSilver(),
-        StocksRankingsSilver(),
-        GoodSymbolsSilver(),
-    ]
+def build_models(config: Config, models: list[Model]):
     if config.selected is not None:
         models = [m for m in models if m.name in config.selected]
+    if config.skip is not None:
+        models = [m for m in models if m.name not in config.skip]
 
     for model in build_execution_plan(models):
         model.build_store_free()
+
+
+def build_silver(config: Config):
+    build_models(
+        config,
+        [
+            CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
+            CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
+            SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
+            SecCompanyFactsPaddedSilver(),
+            StocksDailySilver(),
+            SymbolEmbeddingsSilver(),
+            StocksRankingsSilver(),
+            GoodSymbolsSilver(),
+        ],
+    )
 
 
 def build_gold(config: Config):
-    models: list[Model] = [StocksDailyGold(), Sp500ApproximatedGold()]
-    if config.selected is not None:
-        models = [m for m in models if m.name in config.selected]
-
-    for model in build_execution_plan(models):
-        model.build_store_free()
+    build_models(config, [StocksDailyGold(), Sp500ApproximatedGold()])
 
 
 def build_everything(config: Config):
