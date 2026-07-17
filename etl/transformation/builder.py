@@ -45,7 +45,21 @@ def _backup_transformed():
             logger.info("Removed stale backup: %s", entry)
 
 
-def build_models(config: Config, models: list[Model]):
+def build_models(config: Config, layer: str):
+    models = [
+        CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
+        CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
+        SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
+        SecCompanyFactsPaddedSilver(),
+        StocksDailySilver(),
+        SymbolEmbeddingsSilver(),
+        StocksRankingsSilver(),
+        GoodSymbolsSilver(),
+        StocksDailyGold(),
+        Sp500ApproximatedGold(),
+    ]
+    models = [m for m in models if m.layer == layer]
+
     if config.selected is not None:
         models = [m for m in models if m.name in config.selected]
     if config.skip is not None:
@@ -55,33 +69,13 @@ def build_models(config: Config, models: list[Model]):
         model.build_store_free()
 
 
-def build_silver(config: Config):
-    build_models(
-        config,
-        [
-            CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
-            CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
-            SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
-            SecCompanyFactsPaddedSilver(),
-            StocksDailySilver(),
-            SymbolEmbeddingsSilver(),
-            StocksRankingsSilver(),
-            GoodSymbolsSilver(),
-        ],
-    )
-
-
-def build_gold(config: Config):
-    build_models(config, [StocksDailyGold(), Sp500ApproximatedGold()])
-
-
 def build_everything(config: Config):
     try:
         if config.backup:
             _backup_transformed()
 
-        build_silver(config)
-        build_gold(config)
+        build_models(config, "silver")
+        build_models(config, "gold")
     except Exception as e:
         logger.error("Build failed: %s", e)
         raise e
