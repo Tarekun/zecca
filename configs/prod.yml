@@ -4,10 +4,10 @@ backup: True
 
 # models selected for daily processing
 selected:
-  - company_tickers
   - candles_daily
+  - company_tickers
+  - good_symbols
   - sec_company_facts
   - sec_company_facts_padded
   - stocks_daily
   - stocks_rankings
-  - good_symbols

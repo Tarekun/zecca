@@ -7,7 +7,7 @@ from etl.etl import etl
 
 def load_config(
     operation: str,
-    config_path: str = "configs/config.yml",
+    config_path: str = "configs/dev.yml",
     selected: list[str] | None = None,
 ) -> Config:
     config_file = Path(config_path)
@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--config",
-        default="configs/config.yml",
+        default="configs/dev.yml",
         metavar="PATH",
         help="Path to the YAML config file (default: configs/config.yml)",
     )
