@@ -124,7 +124,7 @@ print(f"trainset size {xtrain.shape[0]} rows, {xtrain.estimated_size('gb')}GB")
 # so the same combinatorial grid would be ~n_estimators times more expensive
 param_grid = {
     "n_estimators": [50, 100],
-    "max_depth": [10, 20, None],
+    "max_depth": [20, None],
     "max_features": ["sqrt", "log2"],
     "class_weight": [None, "balanced"],
 }

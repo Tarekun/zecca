@@ -14,7 +14,9 @@ load_dotenv()
 # the same place regardless of the cwd a script/notebook happens to be launched
 # from. Set MLFLOW_TRACKING_URI (e.g. in a .env file) to a server URL -- such
 # as the one for the locally-hosted mlflow instance -- to log there instead.
-_LOCAL_TRACKING_URI = f"sqlite:///{Path(__file__).resolve().parent.parent / 'mlflow.db'}"
+_LOCAL_TRACKING_URI = (
+    f"sqlite:///{Path(__file__).resolve().parent.parent / 'mlflow.db'}"
+)
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", _LOCAL_TRACKING_URI))
 
 # When logging to a remote tracking server, artifacts routed through its
@@ -30,10 +32,30 @@ _ARTIFACT_LOCATION = os.getenv("MLFLOW_ARTIFACT_LOCATION")
 
 
 def _get_or_create_experiment(name: str) -> str:
-    experiment = mlflow.get_experiment_by_name(name)
-    if experiment is not None:
-        return experiment.experiment_id
-    return mlflow.create_experiment(name, artifact_location=_ARTIFACT_LOCATION)
+    # an experiment's artifact_location is fixed at creation and mlflow has no
+    # API to change it, so if the active experiment under `name` was created
+    # under a different MLFLOW_ARTIFACT_LOCATION than the one configured now,
+    # reusing it would keep silently writing artifacts to the old location.
+    # `get_experiment_by_name` also returns soft-deleted experiments, and
+    # mlflow refuses to create a new one under a name a deleted one still
+    # occupies -- in both cases, walk forward to a numbered variant instead of
+    # failing or silently reusing a stale location. Once created, a variant is
+    # stable: later calls find it active with a matching location and stop.
+    candidate = name
+    suffix = 1
+    while True:
+        experiment = mlflow.get_experiment_by_name(candidate)
+        if experiment is None:
+            return mlflow.create_experiment(
+                candidate, artifact_location=_ARTIFACT_LOCATION
+            )
+        if experiment.lifecycle_stage == "active" and (
+            _ARTIFACT_LOCATION is None
+            or experiment.artifact_location == _ARTIFACT_LOCATION
+        ):
+            return experiment.experiment_id
+        suffix += 1
+        candidate = f"{name}-{suffix}"
 
 
 class ExperimentLogger:
