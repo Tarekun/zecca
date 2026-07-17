@@ -17,6 +17,24 @@ load_dotenv()
 _LOCAL_TRACKING_URI = f"sqlite:///{Path(__file__).resolve().parent.parent / 'mlflow.db'}"
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", _LOCAL_TRACKING_URI))
 
+# When logging to a remote tracking server, artifacts routed through its
+# `mlflow-artifacts:/...` proxy get buffered in the server's own memory before
+# reaching the backing store -- OOM-prone for large models on small hosts.
+# Setting MLFLOW_ARTIFACT_LOCATION to a store URI the client can reach directly
+# (e.g. `s3://bucket/prefix` for an S3-compatible store, with
+# MLFLOW_S3_ENDPOINT_URL/AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY also set) makes
+# newly-created experiments upload straight to the store instead, bypassing the
+# server for artifact bytes entirely. Only takes effect for experiments that
+# don't already exist -- an experiment's artifact_location is fixed at creation.
+_ARTIFACT_LOCATION = os.getenv("MLFLOW_ARTIFACT_LOCATION")
+
+
+def _get_or_create_experiment(name: str) -> str:
+    experiment = mlflow.get_experiment_by_name(name)
+    if experiment is not None:
+        return experiment.experiment_id
+    return mlflow.create_experiment(name, artifact_location=_ARTIFACT_LOCATION)
+
 
 class ExperimentLogger:
     def log_metric(self, key, value, step=None):
@@ -62,7 +80,7 @@ def mlflow_experiment(name, tags=None, log_config_params=()):
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
 
-            mlflow.set_experiment(name)
+            mlflow.set_experiment(experiment_id=_get_or_create_experiment(name))
             with mlflow.start_run():
                 resolved_tags = tags(bound.arguments) if callable(tags) else tags
                 if resolved_tags:
