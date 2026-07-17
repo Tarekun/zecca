@@ -1,12 +1,8 @@
 from pathlib import Path
-
 import polars as pl
 
-from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.stocks_daily import StocksDailySilver
-
-logger = get_logger(__name__)
 
 
 def compute_from_source() -> pl.LazyFrame:

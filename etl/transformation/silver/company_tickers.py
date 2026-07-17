@@ -1,12 +1,8 @@
 import json
 from pathlib import Path
-
 import polars as pl
 
-from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-
-logger = get_logger(__name__)
 
 
 def compute_from_source(raw_data_path: str | Path) -> pl.LazyFrame:
@@ -27,7 +23,6 @@ def compute_from_source(raw_data_path: str | Path) -> pl.LazyFrame:
     """
 
     file_path = Path(raw_data_path) / "company_tickers.json"
-    logger.debug("Using source: %s", file_path)
 
     data = json.loads(file_path.read_bytes())
     rows = [

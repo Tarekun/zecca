@@ -46,7 +46,6 @@ def _extract_rows(file_path: Path) -> list[dict]:
 def compute_from_source(sec_data_path: str | Path) -> pl.LazyFrame:
     sec_dir = Path(sec_data_path)
     json_files = sorted(sec_dir.glob("*.json"))
-    logger.debug("Using source: %s", sec_dir)
 
     chunks = []
     for i in range(0, len(json_files), _CHUNK_SIZE):

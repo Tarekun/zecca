@@ -1,13 +1,9 @@
 from datetime import date
 from pathlib import Path
-
 import polars as pl
 
-from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
-
-logger = get_logger(__name__)
 
 
 def _pad_series(lf: pl.LazyFrame, end_col: str, today: date) -> pl.LazyFrame:
@@ -148,7 +144,9 @@ def compute_from_source() -> pl.LazyFrame:
 
 
 class SecCompanyFactsPaddedSilver(Model):
-    def __init__(self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT) -> None:
+    def __init__(
+        self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT
+    ) -> None:
         super().__init__(
             name="sec_company_facts_padded",
             layer="silver",

@@ -49,14 +49,23 @@ class Model(ABC):
                 raise TypeError(f"{dep!r} is not a concrete subclass of Model")
         self._configured_dependencies = list(dependencies)
 
+    @property
+    def id(self) -> str:
+        return f"{self.layer}.{self.name}"
+
     @abstractmethod
     def _build(self) -> pl.LazyFrame:
         pass
 
     def build(self) -> None:
-        logger.info("Building from source data model %s", self.name)
+        logger.info("Building from source data model %s", self.id)
         self._lf = self._build()
-        logger.info("%s/%s build plan ready (lazy/streaming)", self.layer, self.name)
+        try:
+            self._lf.collect_schema()
+        except pl.exceptions.PolarsError:
+            logger.exception("%s build plan is invalid", self.id)
+            raise
+        logger.info("%s build plan ready and validated", self.id)
 
     @property
     def df(self) -> pl.DataFrame:
@@ -176,14 +185,13 @@ class Model(ABC):
         """Instead of computing the dataset from sources, scans it from
         the current version on disk as it gets saved by self.store"""
 
-        logger.info("Loading from disk data model %s", self.name)
         layer_dir = Path(self.dataplatform_root) / self.layer / self.name
         if self.partitioning_columns:
             glob_path = str(layer_dir / "**" / "*.parquet")
             self._lf = pl.scan_parquet(glob_path, hive_partitioning=True)
         else:
             self._lf = pl.scan_parquet(layer_dir / f"{self.name}.parquet")
-        logger.info("%s/%s scan plan ready from disk", self.layer, self.name)
+
         return self._lf
 
 
