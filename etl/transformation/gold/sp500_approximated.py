@@ -13,9 +13,7 @@ _TOP_N = 600
 
 
 class Sp500ApproximatedGold(Model):
-    def __init__(
-        self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT
-    ) -> None:
+    def __init__(self, dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT) -> None:
         super().__init__(
             name="sp500_approximated", layer="gold", dataplatform_root=dataplatform_root
         )

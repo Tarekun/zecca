@@ -23,7 +23,7 @@ class Model(ABC):
         name: str,
         layer: str,
         partitioning_columns: list[str] = [],
-        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+        dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
         kind: Literal["table", "view"] = "table",
     ) -> None:
         super().__init__()

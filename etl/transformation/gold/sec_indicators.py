@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 
 class SecIndicatorsGold(Model):
-    def __init__(self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT):
+    def __init__(self, dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT):
         super().__init__(
             name="sec_indicators", layer="gold", dataplatform_root=dataplatform_root
         )
