@@ -3,7 +3,7 @@ import os
 from etl.config import Config
 from etl.ingestion.injester import injester_maxx
 from etl.logger import get_logger
-from etl.telegrambot import send_message_to_group
+from etl.telegrambot import send_error_media, send_success_media
 from etl.transformation.builder import build_everything
 
 logger = get_logger(__name__)
@@ -36,8 +36,8 @@ def etl(config: Config):
 
         if config.operation in ["full"]:
             # send this message only on daily full runs
-            send_message_to_group("Another day another dolla")
+            send_success_media()
     except Exception as e:
         logger.error("Job failed with error: %s", e)
-        send_message_to_group(f"Errore nell'ELT giornaliero: {e}")
+        send_error_media(str(e))
         raise e
