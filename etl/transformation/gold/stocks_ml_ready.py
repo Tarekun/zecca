@@ -91,7 +91,7 @@ def append_future_returns(
     future_price_col: str = "future_price",
     class_col: str = "price_movement_class",
     custom_labels: list | None = None,
-) -> Callable:
+) -> Labeling:
     """Labelling to extend `gold.ml_ready` with the price of each symbol
     `lookahead_steps` timeframes ahead, for price forecasting.
 
