@@ -5,7 +5,7 @@ import polars as pl
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 
-def compute_from_source(raw_data_path: str | Path) -> pl.LazyFrame:
+def compute_from_source(raw_data_path: str) -> pl.LazyFrame:
     """Parse the SEC company_tickers.json file and return a flat LazyFrame.
 
     The source file is a JSON object keyed by sequential integers (which are
@@ -45,8 +45,8 @@ def compute_from_source(raw_data_path: str | Path) -> pl.LazyFrame:
 class CompanyTickersSilver(Model):
     def __init__(
         self,
-        raw_data_path: str | Path | None = None,
-        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+        raw_data_path: str | None = None,
+        dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__(
             name="company_tickers", layer="silver", dataplatform_root=dataplatform_root

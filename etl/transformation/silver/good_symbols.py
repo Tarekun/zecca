@@ -1,4 +1,3 @@
-from pathlib import Path
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
@@ -8,9 +7,7 @@ RANK_THRESHOLD = 2500
 
 
 class GoodSymbolsSilver(Model):
-    def __init__(
-        self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT
-    ) -> None:
+    def __init__(self, dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT) -> None:
         super().__init__(
             name="good_symbols", layer="silver", dataplatform_root=dataplatform_root
         )
