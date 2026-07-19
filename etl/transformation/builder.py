@@ -53,6 +53,7 @@ def configured_models(config: Config) -> list[Model]:
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
         SymbolEmbeddingsSilver(),
+        VisibilityGraphIndicatorsSilver(),
         StocksRankingsSilver(),
         GoodSymbolsSilver(),
         StocksDailyGold(),
