@@ -1,4 +1,3 @@
-from pathlib import Path
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
@@ -40,9 +39,7 @@ def compute_from_source() -> pl.LazyFrame:
 
 
 class StocksRankingsSilver(Model):
-    def __init__(
-        self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT
-    ) -> None:
+    def __init__(self, dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT) -> None:
         super().__init__(
             name="stocks_rankings", layer="silver", dataplatform_root=dataplatform_root
         )

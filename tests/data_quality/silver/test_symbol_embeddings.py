@@ -7,6 +7,7 @@ import pytest
 
 sys.path.append(str(Path(__file__).parents[3]))
 
+from etl.transformation.silver.good_symbols import GoodSymbolsSilver
 from etl.transformation.silver.symbol_embeddings import SymbolEmbeddingsSilver
 
 _TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
@@ -166,3 +167,33 @@ def test_embedding_dimension_matches_schema():
         f"Expected {expected} embedding columns (e0..e{expected - 1}), "
         f"found {len(_EMBEDDING_COLS)}: {_EMBEDDING_COLS}"
     )
+
+
+def test_no_symbol_missing_from_good_symbols():
+    """Every symbol present in silver.good_symbols must appear in at least one
+    symbol_embeddings partition. A symbol missing entirely (rather than just
+    before some not_before date) can never be matched by a downstream as-of
+    join on symbol_embeddings, e.g. gold.stocks_ml_ready.
+
+    Violations are written to
+    dataplatform/test_outputs/symbol_embeddings_missing_good_symbols.csv for
+    inspection.
+    """
+    good_symbols = GoodSymbolsSilver().read_from_disk().select("symbol").unique()
+    embedded_symbols = _lf.select("symbol").unique()
+
+    missing = good_symbols.join(embedded_symbols, on="symbol", how="anti").collect()
+
+    if missing.height > 0:
+        _TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        missing.sort("symbol").write_csv(
+            _TEST_OUTPUTS / "symbol_embeddings_missing_good_symbols.csv"
+        )
+
+        pytest.fail(
+            f"Found {missing.height} symbol(s) in good_symbols with no "
+            f"symbol_embeddings partition at all.\n"
+            f"Sample (up to 20): {missing['symbol'].sort().to_list()[:20]}\n"
+            f"Full list written to "
+            f"dataplatform/test_outputs/symbol_embeddings_missing_good_symbols.csv"
+        )

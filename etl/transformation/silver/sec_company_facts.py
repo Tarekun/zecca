@@ -198,7 +198,7 @@ def _enrich_with_float_price(lf: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
-def compute_from_source(sec_data_path: str | Path) -> pl.LazyFrame:
+def compute_from_source(sec_data_path: str) -> pl.LazyFrame:
     """Parse all SEC company facts JSON files under ``sec_data_path`` and return a
     flat LazyFrame of EntityCommonStockSharesOutstanding, EntityPublicFloat, and
     annual NetIncomeLoss entries.
@@ -258,8 +258,8 @@ def compute_from_source(sec_data_path: str | Path) -> pl.LazyFrame:
 class SecCompanyFactsSilver(Model):
     def __init__(
         self,
-        sec_data_path: str | Path | None = None,
-        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+        sec_data_path: str | None = None,
+        dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__(
             name="sec_company_facts",

@@ -23,7 +23,7 @@ class Model(ABC):
         name: str,
         layer: str,
         partitioning_columns: list[str] = [],
-        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+        dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
         kind: Literal["table", "view"] = "table",
     ) -> None:
         super().__init__()
@@ -129,38 +129,22 @@ class Model(ABC):
             shutil.rmtree(model_dir)
         model_dir.mkdir(parents=True, exist_ok=True)
 
-        view_skip_log = (
-            f"{self.layer}.{self.name} is of VIEW kind, skipping disk storage"
-        )
-        if self.partitioning_columns:
-            row_count = (
-                pl.scan_parquet(
-                    str(model_dir / "**" / "*.parquet"), hive_partitioning=True
-                )
-                .select(pl.len())
-                .collect()
-                .item()
+        if self.kind == "view":
+            logger.info(
+                f"{self.layer}.{self.name} is of VIEW kind, skipping disk storage"
             )
-            if self.kind == "view":
-                logger.info(view_skip_log)
-            else:
-                self._lf.sink_parquet(
-                    pl.PartitionBy(model_dir, key=self.partitioning_columns)
-                )
-
+        elif self.partitioning_columns:
+            self._lf.sink_parquet(
+                pl.PartitionBy(model_dir, key=self.partitioning_columns)
+            )
         else:
-            output_path = model_dir / f"{self.name}.parquet"
-            row_count = pl.scan_parquet(output_path).select(pl.len()).collect().item()
-            if self.kind == "view":
-                logger.info(view_skip_log)
-            else:
-                self._lf.sink_parquet(output_path)
+            self._lf.sink_parquet(model_dir / f"{self.name}.parquet")
 
         schema_data = {
             "model": self.name,
             "layer": self.layer,
             "partitioned_by": self.partitioning_columns,
-            "row_count": row_count,
+            "row_count": self._lf.select(pl.len()).collect().item(),
             "columns": [
                 {"name": col, "dtype": str(dtype)}
                 for col, dtype in self._lf.schema.items()

@@ -43,7 +43,7 @@ def _extract_rows(file_path: Path) -> list[dict]:
     return rows
 
 
-def compute_from_source(sec_data_path: str | Path) -> pl.LazyFrame:
+def compute_from_source(sec_data_path: str) -> pl.LazyFrame:
     sec_dir = Path(sec_data_path)
     json_files = sorted(sec_dir.glob("*.json"))
 
@@ -78,8 +78,8 @@ def compute_from_source(sec_data_path: str | Path) -> pl.LazyFrame:
 class SecIndicatorsSilver(Model):
     def __init__(
         self,
-        sec_data_path: str | Path | None = None,
-        dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT,
+        sec_data_path: str | None = None,
+        dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__(
             name="sec_indicators", layer="silver", dataplatform_root=dataplatform_root
