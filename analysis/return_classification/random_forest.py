@@ -37,7 +37,7 @@ def train(
     config: RandomForestConfig,
     extra_params: dict[str, Any] | None = None,
     logger: ExperimentLogger | None = None,
-) -> TrainingResult:
+) -> tuple[TrainingResult, RandomForestClassifier]:
     model = RandomForestClassifier(**dataclasses.asdict(config))
     return train_and_log(model, X_train, y_train, X_val, y_val, logger)
 

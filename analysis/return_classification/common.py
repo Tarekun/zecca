@@ -13,7 +13,6 @@ class TrainingResult:
     train_accuracy: float
     val_accuracy: float | None
     val_f1: float | None
-    model: Any
 
 
 def train_and_log(
@@ -23,10 +22,15 @@ def train_and_log(
     X_val: np.ndarray | None,
     y_val: np.ndarray | None,
     logger: ExperimentLogger | None,
-) -> TrainingResult:
+) -> tuple[TrainingResult, Any]:
     """Fits `model` and reports train/val accuracy plus macro-F1 -- shared by
     every per-model `train` wrapper (decision tree, random forest, ...) so
-    they only differ in how `model` itself gets built from its config."""
+    they only differ in how `model` itself gets built from its config.
+
+    Returns `(result, model)` rather than bundling `model` into `TrainingResult`,
+    so callers that don't need the fitted model (e.g. `run_search` sweeping many
+    configs) can simply discard it and let it be freed instead of holding every
+    fitted model in memory for the whole sweep."""
     model.fit(X_train, y_train)
     train_accuracy = accuracy_score(y_train, model.predict(X_train))
 
@@ -65,11 +69,13 @@ def train_and_log(
             )
         logger.log_model(model, flavor="sklearn")
 
-    return TrainingResult(
-        train_accuracy=train_accuracy,
-        val_accuracy=val_accuracy,
-        val_f1=val_f1,
-        model=model,
+    return (
+        TrainingResult(
+            train_accuracy=train_accuracy,
+            val_accuracy=val_accuracy,
+            val_f1=val_f1,
+        ),
+        model,
     )
 
 
@@ -90,7 +96,7 @@ def run_search(
     results = []
     for override in overrides:
         config = dataclasses.replace(base_config, **override)
-        result = train_fn(X_train, y_train, X_val, y_val, config, extra_params=extra_params)
+        result, _model = train_fn(X_train, y_train, X_val, y_val, config, extra_params=extra_params)
         results.append({"overrides": override, "config": config, "result": result})
 
     results.sort(key=lambda r: r["result"].val_accuracy, reverse=True)

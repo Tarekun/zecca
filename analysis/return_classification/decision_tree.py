@@ -35,7 +35,7 @@ def train(
     config: DecisionTreeConfig,
     extra_params: dict[str, Any] | None = None,
     logger: ExperimentLogger | None = None,
-) -> TrainingResult:
+) -> tuple[TrainingResult, DecisionTreeClassifier]:
     model = DecisionTreeClassifier(**dataclasses.asdict(config))
     return train_and_log(model, X_train, y_train, X_val, y_val, logger)
 
