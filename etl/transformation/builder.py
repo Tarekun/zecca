@@ -53,6 +53,7 @@ def build_models(config: Config, layer: str):
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
         SymbolEmbeddingsSilver(),
+        VisibilityGraphIndicatorsSilver(),
         StocksRankingsSilver(),
         GoodSymbolsSilver(),
         StocksDailyGold(),
