@@ -72,6 +72,12 @@ class StocksMlReadyGold(Model):
             ).drop("not_before")
         )
 
+        # TODO: some symbols never appear in any symbol_embeddings partition (they
+        # get excluded upstream for insufficient return history), so they can never
+        # get a match here. Ideally this shouldn't drop anything -- see
+        # tests/data_quality/silver/test_symbol_embeddings.py::test_no_symbol_missing_from_good_symbols
+        lf = lf.filter(pl.col("embedding").is_not_null())
+
         for labelling in self.labellings:
             lf = labelling(lf)
 
