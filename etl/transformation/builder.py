@@ -57,6 +57,7 @@ def build_models(config: Config, layer: str):
         GoodSymbolsSilver(),
         StocksDailyGold(),
         Sp500ApproximatedGold(),
+        StocksMlReadyGold(),
     ]
     models = [m for m in models if m.layer == layer]
 
