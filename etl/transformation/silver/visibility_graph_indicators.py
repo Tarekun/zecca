@@ -77,9 +77,7 @@ def compute_visibility_graph_indicators(lf: pl.LazyFrame) -> pl.LazyFrame:
 
 
 class VisibilityGraphIndicatorsSilver(Model):
-    def __init__(
-        self, dataplatform_root: str | Path = DEFAULT_DATAPLATFORM_ROOT
-    ) -> None:
+    def __init__(self, dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT) -> None:
         super().__init__(
             name="visibility_graph_indicators",
             layer="silver",
