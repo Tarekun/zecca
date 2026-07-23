@@ -7,12 +7,14 @@ requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.5.3",
     "matplotlib>=3.11.0",
+    "networkx>=3.6.1",
     "polars>=1.41.2",
     "pyarrow>=24.0.0",
     "pytelegrambotapi>=4.34.0",
     "pytest>=9.0.3",
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
+    "ts2vg>=1.2.4",
     "yfinance>=1.4.1",
 ]
 
