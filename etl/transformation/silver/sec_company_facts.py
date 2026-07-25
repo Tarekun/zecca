@@ -25,21 +25,53 @@ _SCHEMA = {
     "earnings_filed": pl.String,
     "earnings": pl.Int128,
 }
-_CHUNK_SIZE = 500
-# A full fiscal year is ~365 days; this range tolerates short/long fiscal
-# years without matching the quarterly figures also tagged fp="FY" (a 10-K
-# tags every fact it discloses — including quarterly comparatives — with its
-# own filing period, "FY", regardless of that fact's actual start/end span).
-_ANNUAL_DURATION_DAYS = (350, 380)
+_DATE_COLUMNS = [
+    "shares_outstanding_end",
+    "shares_outstanding_filed",
+    "public_float_end",
+    "public_float_filed",
+    "earnings_end",
+    "earnings_filed",
+]
 
 
-def _annual_net_income_entries(gaap: dict) -> list[dict]:
-    """Returns one NetIncomeLoss entry per distinct fiscal year end date.
+def _shares_outstanding_rows(dei: dict) -> list[dict]:
+    """One row per EntityCommonStockSharesOutstanding entry, with only its own
+    (non-common) columns set."""
 
-    Entries whose start/end span isn't ~1 year are dropped (see
-    _ANNUAL_DURATION_DAYS). The same fiscal year is routinely re-disclosed as
-    the prior-year comparative in the next filing; when an end date has more
-    than one entry, the most recently filed one wins."""
+    entries = (
+        dei.get("EntityCommonStockSharesOutstanding", {}).get("units", {}).get("shares")
+        or []
+    )
+    return [
+        {
+            "shares_outstanding_end": e.get("end"),
+            "shares_outstanding_filed": e.get("filed"),
+            "shares_outstanding_fp": e.get("fp"),
+            "shares_outstanding": e.get("val"),
+        }
+        for e in entries
+    ]
+
+
+def _public_float_rows(dei: dict) -> list[dict]:
+    """One row per EntityPublicFloat entry, with only its own (non-common)
+    columns set."""
+
+    entries = dei.get("EntityPublicFloat", {}).get("units", {}).get("USD") or []
+    return [
+        {
+            "public_float_end": e.get("end"),
+            "public_float_filed": e.get("filed"),
+            "non_affiliate_valuation": e.get("val"),
+        }
+        for e in entries
+    ]
+
+
+def _earnings_rows(gaap: dict) -> list[dict]:
+    """One row per annual NetIncomeLoss entry (see _annual_net_income_entries),
+    with only its own (non-common) columns set."""
 
     entries = gaap.get("NetIncomeLoss", {}).get("units", {}).get("USD") or []
 
@@ -48,146 +80,87 @@ def _annual_net_income_entries(gaap: dict) -> list[dict]:
         start, end, filed = e.get("start"), e.get("end"), e.get("filed")
         if start is None or end is None or filed is None:
             continue
-        try:
-            duration = (date.fromisoformat(end) - date.fromisoformat(start)).days
-        except ValueError:
-            continue
-        if not (_ANNUAL_DURATION_DAYS[0] <= duration <= _ANNUAL_DURATION_DAYS[1]):
+
+        # A full fiscal year is ~365 days; this range tolerates short/long fiscal
+        # years without matching the quarterly figures also tagged fp="FY" (a 10-K
+        # tags every fact it discloses — including quarterly comparatives — with its
+        # own filing period, "FY", regardless of that fact's actual start/end span).
+        duration = (date.fromisoformat(end) - date.fromisoformat(start)).days
+        if not 350 <= duration <= 380:
             continue
         if end not in by_end or filed > by_end[end]["filed"]:
             by_end[end] = e
 
-    return list(by_end.values())
-
-
-def _extract_rows(file_path: Path) -> list[dict]:
-    """Extract EntityCommonStockSharesOutstanding, EntityPublicFloat, and annual
-    NetIncomeLoss rows from one SEC JSON file.
-
-    Always returns at least one row. If any key in the nested path is absent the
-    metric-specific columns are null so no file is silently dropped"""
-
-    null_row = {
-        "cik": None,
-        "entity_name": None,
-        "source_file": file_path.name,
-        "shares_outstanding_end": None,
-        "shares_outstanding_filed": None,
-        "shares_outstanding_fp": None,
-        "shares_outstanding": None,
-        "public_float_end": None,
-        "public_float_filed": None,
-        "non_affiliate_valuation": None,
-        "earnings_end": None,
-        "earnings_filed": None,
-        "earnings": None,
-    }
-    try:
-        data = json.loads(file_path.read_bytes())
-    except Exception as e:
-        logger.warning("Could not read %s: %s", file_path.name, e)
-        return [null_row]
-
-    cik = data.get("cik")
-    entity_name = data.get("entityName")
-    common = {"cik": cik, "entity_name": entity_name, "source_file": file_path.name}
-    dei = data.get("facts", {}).get("dei", {})
-    gaap = data.get("facts", {}).get("us-gaap", {})
-
-    shares_entries = (
-        dei.get("EntityCommonStockSharesOutstanding", {}).get("units", {}).get("shares")
-        or []
-    )
-    shares_rows = [
+    return [
         {
-            **common,
-            "shares_outstanding_end": e.get("end"),
-            "shares_outstanding_filed": e.get("filed"),
-            "shares_outstanding_fp": e.get("fp"),
-            "shares_outstanding": e.get("val"),
-            "public_float_end": None,
-            "public_float_filed": None,
-            "non_affiliate_valuation": None,
-            "earnings_end": None,
-            "earnings_filed": None,
-            "earnings": None,
-        }
-        for e in shares_entries
-    ]
-
-    float_entries = dei.get("EntityPublicFloat", {}).get("units", {}).get("USD") or []
-    float_rows = [
-        {
-            **common,
-            "shares_outstanding_end": None,
-            "shares_outstanding_filed": None,
-            "shares_outstanding_fp": None,
-            "shares_outstanding": None,
-            "public_float_end": e.get("end"),
-            "public_float_filed": e.get("filed"),
-            "non_affiliate_valuation": e.get("val"),
-            "earnings_end": None,
-            "earnings_filed": None,
-            "earnings": None,
-        }
-        for e in float_entries
-    ]
-
-    earnings_rows = [
-        {
-            **common,
-            "shares_outstanding_end": None,
-            "shares_outstanding_filed": None,
-            "shares_outstanding_fp": None,
-            "shares_outstanding": None,
-            "public_float_end": None,
-            "public_float_filed": None,
-            "non_affiliate_valuation": None,
             "earnings_end": e.get("end"),
             "earnings_filed": e.get("filed"),
             "earnings": e.get("val"),
         }
-        for e in _annual_net_income_entries(gaap)
+        for e in list(by_end.values())
     ]
 
-    rows = shares_rows + float_rows + earnings_rows
-    if not rows:
-        return [{**null_row, "cik": cik, "entity_name": entity_name}]
 
-    return rows
+def _extract_rows_from_file(file_path: Path) -> pl.DataFrame:
+    """Extracts all EntityCommonStockSharesOutstanding, EntityPublicFloat, and
+    annual NetIncomeLoss rows from one SEC JSON file into a DataFrame following
+    _SCHEMA.
+
+    Always returns at least one row so no file is silently dropped: if the
+    file can't be read, or has none of the three facts, the row has only
+    cik/entity_name/source_file set (possibly null, if the file was
+    unreadable)."""
+
+    data = json.loads(file_path.read_bytes())
+    dei = data.get("facts", {}).get("dei", {})
+    gaap = data.get("facts", {}).get("us-gaap", {})
+    facts = (
+        _shares_outstanding_rows(dei) + _public_float_rows(dei) + _earnings_rows(gaap)
+    )
+
+    common = {
+        "cik": data.get("cik"),
+        "entity_name": data.get("entityName"),
+        "source_file": file_path.name,
+    }
+    rows = [{**common, **row} for row in facts] or [common]
+
+    return pl.from_dicts(rows, schema=_SCHEMA)
 
 
-def _enrich_with_float_price(lf: pl.LazyFrame) -> pl.LazyFrame:
-    """Join each public float entry with the opening price on its end date and
-    compute ``estimated_float_shares = non_affiliate_valuation / open``.
+def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
+    """Joins each public float entry with the opening price on its end date and
+    computes ``estimated_float_shares = non_affiliate_valuation / open``.
 
     Rows that have no matching ticker or no candle on that date get a null
-    ``estimated_float_shares``.  The ticker column used for the join is not
-    kept in the output"""
+    ``estimated_float_shares``. The ticker column used for the join is not
+    kept in the output."""
 
     try:
         tickers = (
             CompanyTickersSilver()
             .read_from_disk()
             .select(pl.col("cik_str").alias("cik"), pl.col("ticker"))
+            .collect()
         )
         prices = (
             CandlesDailySilver("")
             .read_from_disk()
             .select(["timeframe", "symbol", "open"])
             .rename({"timeframe": "public_float_end", "symbol": "ticker"})
+            .collect()
         )
     except Exception as e:
         logger.warning(
             "Dependencies not found on disk — estimated_float_shares will be null: %s",
             e,
         )
-        return lf.with_columns(
+        return df.with_columns(
             pl.lit(None, dtype=pl.Float64).alias("estimated_float_shares")
         )
 
     return (
-        lf.join(tickers, on="cik", how="left")
+        df.join(tickers, on="cik", how="left")
         .join(prices, on=["ticker", "public_float_end"], how="left")
         .with_columns(
             (pl.col("non_affiliate_valuation").cast(pl.Float64) / pl.col("open")).alias(
@@ -198,24 +171,18 @@ def _enrich_with_float_price(lf: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
-def compute_from_source(sec_data_path: str) -> pl.LazyFrame:
-    """Parse all SEC company facts JSON files under ``sec_data_path`` and return a
-    flat LazyFrame of EntityCommonStockSharesOutstanding, EntityPublicFloat, and
-    annual NetIncomeLoss entries.
+def compute_from_source(sec_data_path: Path) -> pl.DataFrame:
+    """Parse all SEC company facts JSON files under ``sec_data_path`` into a
+    flat DataFrame of EntityCommonStockSharesOutstanding, EntityPublicFloat,
+    and annual NetIncomeLoss entries (see ``_extract_rows_from_file``), then
+    estimate each public float entry's implied share count (see
+    ``_enrich_with_float_price``).
 
-    Each metric's entries are represented as separate rows; metric-specific columns
-    are null on rows belonging to the other metrics.
-
-    When ``dataplatform_root`` is provided the function also reads ``company_tickers``
-    and ``candles_daily`` from the silver layer to compute ``estimated_float_shares``
-    (``non_affiliate_valuation`` divided by the opening price on the public float end
-    date).  If either dependency is unavailable the column is present but null.
-
-    Files are processed sequentially in chunks so only a small window of JSON
-    data is held in memory at any time.
+    Each metric's entries are represented as separate rows; metric-specific
+    columns are null on rows belonging to the other metrics.
 
     Returns:
-        LazyFrame with columns:
+        DataFrame with columns:
 
         - ``cik``                      – company CIK (integer)
         - ``entity_name``              – from entityName
@@ -233,32 +200,16 @@ def compute_from_source(sec_data_path: str) -> pl.LazyFrame:
         - ``earnings``                 – annual NetIncomeLoss value in USD
     """
 
-    sec_dir = Path(sec_data_path)
-    json_files = sorted(sec_dir.glob("*.json"))
-
-    chunks = []
-    for i in range(0, len(json_files), _CHUNK_SIZE):
-        batch = json_files[i : i + _CHUNK_SIZE]
-        rows = []
-        for file_path in batch:
-            rows.extend(_extract_rows(file_path))
-        chunks.append(pl.from_dicts(rows, schema=_SCHEMA).lazy())
-
-    lf = pl.concat(chunks).with_columns(
-        pl.col("shares_outstanding_end").str.to_date(format="%Y-%m-%d", strict=False),
-        pl.col("shares_outstanding_filed").str.to_date(format="%Y-%m-%d", strict=False),
-        pl.col("public_float_end").str.to_date(format="%Y-%m-%d", strict=False),
-        pl.col("public_float_filed").str.to_date(format="%Y-%m-%d", strict=False),
-        pl.col("earnings_end").str.to_date(format="%Y-%m-%d", strict=False),
-        pl.col("earnings_filed").str.to_date(format="%Y-%m-%d", strict=False),
+    json_files = sorted(sec_data_path.glob("*.json"))
+    df = pl.concat([_extract_rows_from_file(f) for f in json_files]).with_columns(
+        [pl.col(c).str.to_date(format="%Y-%m-%d", strict=False) for c in _DATE_COLUMNS]
     )
-    return _enrich_with_float_price(lf)
+    return _enrich_with_float_price(df)
 
 
 class SecCompanyFactsSilver(Model):
     def __init__(
         self,
-        sec_data_path: str | None = None,
         dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__(
@@ -266,9 +217,6 @@ class SecCompanyFactsSilver(Model):
             layer="silver",
             dataplatform_root=dataplatform_root,
         )
-        self.sec_data_path = sec_data_path
 
     def _build(self) -> pl.LazyFrame:
-        if self.sec_data_path is None:
-            raise ValueError("sec_data_path is required to build SecCompanyFactsSilver")
-        return compute_from_source(self.sec_data_path)
+        return compute_from_source(Path(self.dataplatform_root) / "raw" / "sec").lazy()

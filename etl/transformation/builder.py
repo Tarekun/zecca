@@ -49,7 +49,7 @@ def build_models(config: Config, layer: str):
     models = [
         CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
         CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
-        SecCompanyFactsSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/sec/"),
+        SecCompanyFactsSilver(),
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
         SymbolEmbeddingsSilver(),
