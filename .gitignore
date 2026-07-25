@@ -20,3 +20,6 @@ docs/.obsidian
 
 # all hail our overlords
 .claude
+
+mlruns
+mlflow.db
