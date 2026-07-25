@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 _TRADING_DAYS_PER_YEAR = 252
 
 
-def _compute_metrics(history: pl.DataFrame) -> dict[str, float | None]:
+def compute_metrics(history: pl.DataFrame) -> dict[str, float | None]:
     """Annualized volatility/Sharpe (rf=0) plus max drawdown and its longest
     duration (days underwater since the last equity peak) from the equity curve."""
     enriched = (
@@ -61,7 +61,7 @@ def _fmt_num(value: float | None) -> str:
 def plot_result(history: pl.DataFrame, title: str | None = None):
     # show a pyplot of the equity curve from simulate_strategy, annotated with
     # volatility, longest drawdown period, maximum drawdown value and overall sharpe
-    metrics = _compute_metrics(history)
+    metrics = compute_metrics(history)
 
     plt.figure(figsize=(12, 6))
     plt.plot(history["timeframe"], history["portfolio_value"], label="Portfolio value")

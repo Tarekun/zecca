@@ -4,6 +4,8 @@ import polars as pl
 from typing import Callable
 
 from analysis.strategies.utils import prices_on
+from analysis.strategies.reporting import compute_metrics
+from analysis.mlflow_utils import ExperimentLogger, mlflow_experiment
 
 
 class Strategy(ABC):
@@ -27,7 +29,7 @@ class Strategy(ABC):
         pass
 
     def daily_backtest(
-        self, df: pl.DataFrame, starting_balance: float, log_mlflow: bool = False
+        self, df: pl.DataFrame, starting_balance: float, log_on_mlflow: bool = False
     ) -> pl.DataFrame:
         """Calls `make_decision` for every trading day found in `df`, applying
         whatever position change it returns at that day's median (high+low)/2
@@ -71,11 +73,31 @@ class Strategy(ABC):
                 history, schema=["timeframe", "portfolio_value"], orient="row"
             )
 
-        if log_mlflow:
-            return mlflow_logged_backtest(run_backtest)
+        @mlflow_experiment(
+            name=self.__class__.__name__,
+            tags={"strategy-backtest": True},
+            log_config_params=("strategy_params",),
+        )
+        def logged_backtest(
+            strategy_params: dict, logger: ExperimentLogger | None = None
+        ) -> pl.DataFrame:
+            history = run_backtest()
+            if logger is not None:
+                # step-indexed so mlflow renders it as a native line chart
+                # (the day-by-day equity curve) in the run's Metrics tab
+                for step, value in enumerate(history["portfolio_value"]):
+                    logger.log_metric("portfolio_value", value, step=step)
+
+                metrics = compute_metrics(history)
+                logger.log_metrics({k: v for k, v in metrics.items() if v is not None})
+            return history
+
+        if log_on_mlflow:
+            strategy_params = {
+                key: value
+                for key, value in vars(self).items()
+                if not key.startswith("_")
+            }
+            return logged_backtest(strategy_params)
         else:
             return run_backtest()
-
-
-def mlflow_logged_backtest(backtest: Callable) -> pl.DataFrame:
-    return backtest()

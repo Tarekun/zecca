@@ -11,7 +11,7 @@ from typing import cast, Literal
 from etl.transformation.gold import StocksMlReadyGold
 from analysis.strategies.strategy import Strategy
 from analysis.strategies.classic_momentum import ClassicMomentum
-from analysis.strategies.reporting import _compute_metrics
+from analysis.strategies.reporting import compute_metrics
 from analysis.strategies.utils import period_key
 
 # same strategy as classic_momentum, but months_lookback/weeks_ignore/top_n are
@@ -20,6 +20,7 @@ _PARAM_GRID = {
     "months_lookback": [3, 9, 12],
     "weeks_ignore": [2, 4],
     "top_n": [10, 20, 30],
+    "rebalance": ["weekly", "monthly", "quarterly"],
 }
 
 
@@ -65,7 +66,7 @@ def optimize_parameters(
         )
         history = candidate.daily_backtest(window_df, starting_balance)
         trading_year_history = history.filter(pl.col("timeframe") >= trading_year_start)
-        sharpe = _compute_metrics(trading_year_history)["sharpe"]
+        sharpe = compute_metrics(trading_year_history)["sharpe"]
         if sharpe is not None and sharpe > best_sharpe:
             best_sharpe = sharpe
             best_params = params
