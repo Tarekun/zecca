@@ -21,6 +21,7 @@ _SCHEMA = {
     "public_float_end": pl.String,
     "public_float_filed": pl.String,
     "non_affiliate_valuation": pl.Int128,
+    "earnings_start": pl.String,
     "earnings_end": pl.String,
     "earnings_filed": pl.String,
     "earnings": pl.Int128,
@@ -30,6 +31,7 @@ _DATE_COLUMNS = [
     "shares_outstanding_filed",
     "public_float_end",
     "public_float_filed",
+    "earnings_start",
     "earnings_end",
     "earnings_filed",
 ]
@@ -93,6 +95,7 @@ def _earnings_rows(gaap: dict) -> list[dict]:
 
     return [
         {
+            "earnings_start": e.get("start"),
             "earnings_end": e.get("end"),
             "earnings_filed": e.get("filed"),
             "earnings": e.get("val"),
@@ -195,6 +198,7 @@ def compute_from_source(sec_data_path: Path) -> pl.DataFrame:
         - ``public_float_filed``       – filing date for public float
         - ``non_affiliate_valuation``  – public float value in USD
         - ``estimated_float_shares``   – non_affiliate_valuation / open price on public_float_end
+        - ``earnings_start``           – fiscal year start date for annual net income
         - ``earnings_end``             – fiscal year end date for annual net income
         - ``earnings_filed``           – filing date for annual net income
         - ``earnings``                 – annual NetIncomeLoss value in USD

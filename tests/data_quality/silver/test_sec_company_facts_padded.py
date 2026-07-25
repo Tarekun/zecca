@@ -99,27 +99,30 @@ def test_reference_date_continuity_per_cik():
         )
 
 
-def test_every_filing_end_date_present_as_reference_date():
-    """Every (cik, end_date) pair for each metric in sec_company_facts must
+def test_every_filing_filed_date_present_as_reference_date():
+    """Every (cik, filed_date) pair for each metric in sec_company_facts must
     appear as a (cik, reference_date) row in sec_company_facts_padded — padding
     only fills the gaps between filings, it must never drop a filing's own date.
 
-    Missing (cik, end_date, metric) triples are written to
+    reference_date is anchored on the filing date (not the reported period end)
+    since that's when a value actually becomes public; see _pad_series.
+
+    Missing (cik, filed_date, metric) triples are written to
     dataplatform/test_outputs/sec_company_facts_padded_missing_filing_dates.csv.
     """
     reference_dates = lf.select(["cik", "reference_date"]).unique()
 
     missing_frames = []
-    for end_col in ["shares_outstanding_end", "public_float_end", "earnings_end"]:
+    for filed_col in ["shares_outstanding_filed", "public_float_filed", "earnings_filed"]:
         filings = (
-            facts_lf.select(["cik", end_col])
-            .filter(pl.col("cik").is_not_null() & pl.col(end_col).is_not_null())
+            facts_lf.select(["cik", filed_col])
+            .filter(pl.col("cik").is_not_null() & pl.col(filed_col).is_not_null())
             .unique()
-            .rename({end_col: "reference_date"})
+            .rename({filed_col: "reference_date"})
         )
         missing = (
             filings.join(reference_dates, on=["cik", "reference_date"], how="anti")
-            .with_columns(pl.lit(end_col).alias("metric"))
+            .with_columns(pl.lit(filed_col).alias("metric"))
             .collect()
         )
         if missing.height > 0:
@@ -136,7 +139,7 @@ def test_every_filing_end_date_present_as_reference_date():
 
         affected = combined_missing.select("cik").unique().to_series().to_list()
         pytest.fail(
-            f"{combined_missing.height} (cik, end_date) filing pairs from "
+            f"{combined_missing.height} (cik, filed_date) filing pairs from "
             f"sec_company_facts are missing from sec_company_facts_padded's reference_date.\n"
             f"Affected CIKs ({len(affected)}): {affected[:20]}"
             f"{'...' if len(affected) > 20 else ''}\n"
