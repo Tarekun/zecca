@@ -104,15 +104,19 @@ def _earnings_rows(gaap: dict) -> list[dict]:
     ]
 
 
+def _cik_from_filename(file_path: Path) -> int | None:
+    digits = file_path.stem.removeprefix("CIK").lstrip("0")
+    return int(digits) if digits else None
+
+
 def _extract_rows_from_file(file_path: Path) -> pl.DataFrame:
     """Extracts all EntityCommonStockSharesOutstanding, EntityPublicFloat, and
     annual NetIncomeLoss rows from one SEC JSON file into a DataFrame following
     _SCHEMA.
 
     Always returns at least one row so no file is silently dropped: if the
-    file can't be read, or has none of the three facts, the row has only
-    cik/entity_name/source_file set (possibly null, if the file was
-    unreadable)."""
+    file has none of the three facts, the row has only
+    cik/entity_name/source_file set."""
 
     data = json.loads(file_path.read_bytes())
     dei = data.get("facts", {}).get("dei", {})
@@ -122,7 +126,7 @@ def _extract_rows_from_file(file_path: Path) -> pl.DataFrame:
     )
 
     common = {
-        "cik": data.get("cik"),
+        "cik": data.get("cik") or _cik_from_filename(file_path),
         "entity_name": data.get("entityName"),
         "source_file": file_path.name,
     }

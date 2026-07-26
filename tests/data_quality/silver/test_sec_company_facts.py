@@ -16,9 +16,20 @@ lf = SecCompanyFactsSilver().read_from_disk()
 
 
 def test_no_null_cik():
-    """No row in sec_company_facts should have a null CIK."""
+    """No row in sec_company_facts should have a null CIK, unless it comes from
+    a source file that is empty (contains only '{}') — the SEC sometimes
+    publishes such empty facts files, and they can't yield a CIK."""
 
-    null_rows = lf.select("cik").filter(pl.col("cik").is_null()).collect()
+    null_rows = (
+        lf.select("cik", "source_file").filter(pl.col("cik").is_null()).collect()
+    )
+
+    empty_source_files = {
+        source_file
+        for source_file in null_rows["source_file"].drop_nulls().unique().to_list()
+        if (RAW_SEC_DIR / source_file).read_bytes().strip() == b"{}"
+    }
+    null_rows = null_rows.filter(~pl.col("source_file").is_in(empty_source_files))
 
     assert null_rows.height == 0, (
         f"Found {null_rows.height} row(s) with a null CIK.\n"
