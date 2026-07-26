@@ -37,6 +37,17 @@ def test_no_null_cik():
     )
 
 
+def test_no_null_source_file():
+    null_rows = (
+        lf.filter(pl.col("source_file").is_null()).select("source_file").collect()
+    )
+
+    assert null_rows.height == 0, (
+        f"Found {null_rows.height} row(s) with a null source_file.\n"
+        f"Sample (up to 20):\n{null_rows.head(20)}"
+    )
+
+
 def test_cik_count_matches_file_count():
     """The number of distinct CIK values in the silver model must equal the number
     of source JSON files under dataplatform/raw/sec — one row (possibly null) per file.
@@ -57,7 +68,7 @@ def test_each_cik_has_at_least_one_metric():
     CIKs with no metric data are written to
     dataplatform/test_outputs/sec_company_facts_missing_val.csv for inspection.
     """
-    metrics_lf = lf.select(["cik", "shares_outstanding", "non_affiliate_valuation"])
+    metrics_lf = lf
     ciks_with_data = (
         metrics_lf.filter(
             pl.col("shares_outstanding").is_not_null()
