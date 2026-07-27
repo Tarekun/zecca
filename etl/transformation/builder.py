@@ -45,7 +45,7 @@ def _backup_transformed():
             logger.info("Removed stale backup: %s", entry)
 
 
-def build_models(config: Config, layer: str):
+def configured_models(config: Config) -> list[Model]:
     models = [
         CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
         CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
@@ -59,12 +59,18 @@ def build_models(config: Config, layer: str):
         Sp500ApproximatedGold(),
         StocksMlReadyGold(),
     ]
-    models = [m for m in models if m.layer == layer]
 
     if config.selected is not None:
         models = [m for m in models if m.name in config.selected]
     if config.skip is not None:
         models = [m for m in models if m.name not in config.skip]
+
+    return models
+
+
+def build_models(config: Config, layer: str):
+    models = configured_models(config)
+    models = [m for m in models if m.layer == layer]
 
     for model in build_execution_plan(models):
         model.build_store_free()

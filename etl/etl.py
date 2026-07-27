@@ -4,7 +4,8 @@ from etl.config import Config
 from etl.ingestion.injester import injester_maxx
 from etl.logger import get_logger
 from etl.telegrambot import send_error_media, send_success_media
-from etl.transformation.builder import build_everything
+from etl.transformation.builder import build_everything, configured_models
+from etl.transformation.quality_checks import DataQualityError
 
 logger = get_logger(__name__)
 
@@ -34,10 +35,25 @@ def etl(config: Config):
             build_everything(config)
             logger.info("All models built correctly!")
 
+        if config.operation in ["test"]:
+            models = configured_models(config)
+            failures = []
+            for m in models:
+                m.read_from_disk()
+                try:
+                    m.run_quality_checks()
+                except DataQualityError as exc:
+                    failures.extend(f"{m.id}: {failure}" for failure in exc.failures)
+
+            if failures:
+                raise DataQualityError("pipeline", failures)
+
         if config.operation in ["full"]:
             # send this message only on daily full runs
             send_success_media()
     except Exception as e:
         logger.error("Job failed with error: %s", e)
-        send_error_media(str(e))
+        # send this message only on daily full runs
+        if config.operation in ["full"]:
+            send_error_media(str(e))
         raise e
