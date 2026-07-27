@@ -23,6 +23,7 @@ def ingest_ticker_hourly(base_dir: str, incremental: bool = True):
 
 
 def yfincance_ticker_ingestion(interval: str, base_dir: str, incremental: bool = True):
+    # TODO this needs to be dropped
     tickers = read_tickers(base_dir)
     ticker_names = tickers["ticker"].dropna().astype(str).unique().tolist()
     total = len(ticker_names)
@@ -120,6 +121,7 @@ def _get_latest_partition_date(base_dir: str, name: str) -> datetime:
         raise FileNotFoundError(f"No year/month partitions found under {path}")
 
     year, month = latest_year_month
+    # TODO: this needs to be removed
     res = run_custom_query(f"""SELECT MAX(date)
         FROM read_parquet('{path}/**/*.parquet', hive_partitioning=true)
         WHERE year={year}
