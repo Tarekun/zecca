@@ -4,8 +4,9 @@ from typing import Callable
 from etl.logger import get_logger
 from etl.transformation.gold import StocksDailyGold
 from etl.transformation.silver import GoodSymbolsSilver, SymbolEmbeddingsSilver
+from etl.transformation.silver.symbol_embeddings import DEFAULT_EMBEDDING_SIZE
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import not_null, unique, list_length
 
 logger = get_logger(__name__)
 
@@ -35,6 +36,7 @@ class StocksMlReadyGold(Model):
             quality_checks=[
                 not_null(["timeframe", "symbol", "embedding"]),
                 unique(["timeframe", "symbol"]),
+                list_length("embedding", DEFAULT_EMBEDDING_SIZE),
             ],
             dataplatform_root=dataplatform_root,
             kind="view",
