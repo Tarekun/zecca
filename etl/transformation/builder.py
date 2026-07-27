@@ -58,6 +58,8 @@ def configured_models(config: Config) -> list[Model]:
         StocksDailyGold(),
         Sp500ApproximatedGold(),
         StocksMlReadyGold(),
+        SecIndicatorsSilver(),
+        SecIndicatorsGold(),
     ]
 
     if config.selected is not None:

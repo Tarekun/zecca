@@ -8,9 +8,7 @@ from sklearn.decomposition import TruncatedSVD
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.quality_checks import not_null, unique
 from etl.transformation.silver.candles_daily import CandlesDailySilver
-from etl.transformation.silver.sec_company_facts_padded import (
-    SecCompanyFactsPaddedSilver,
-)
+from etl.transformation.silver.good_symbols import GoodSymbolsSilver
 
 FIRST_DATE = date(2000, 1, 1)
 FINAL_DATE = date(2026, 1, 1)
@@ -206,6 +204,9 @@ class SymbolEmbeddingsSilver(Model):
                     ]
                 ),
                 unique(["not_before", "symbol"]),
+                test_well_known_symbols_always_present,
+                test_well_known_symbols_stable_across_partitions,
+                test_no_symbol_missing_from_good_symbols,
             ],
             dataplatform_root=dataplatform_root,
         )
@@ -234,3 +235,103 @@ class SymbolEmbeddingsSilver(Model):
 
         out = pl.concat(frames, how="vertical").sort("not_before", "symbol")
         return out.lazy()
+
+
+_WELL_KNOWN_SYMBOLS = ["AAPL", "MSFT", "GOOGL", "JPM", "BAC", "XOM", "CVX", "V"]
+_MIN_ADJACENT_SIMILARITY = 0.5
+
+
+def test_well_known_symbols_always_present(
+    lf: pl.LazyFrame,
+) -> pl.LazyFrame:
+    """Sanity check on the fixture set itself: each well-known symbol must be
+    present in every not_before partition, otherwise the adjacency test below
+    would silently skip periods instead of comparing them."""
+    n_partitions = lf.select("not_before").unique().collect().height
+    counts = (
+        lf.select(["symbol", "not_before"])
+        .filter(pl.col("symbol").is_in(_WELL_KNOWN_SYMBOLS))
+        .group_by("symbol")
+        .agg(pl.len().alias("n_partitions"))
+        .collect()
+    )
+
+    missing = counts.filter(pl.col("n_partitions") < n_partitions)
+    found_symbols = counts["symbol"].to_list()
+    absent_entirely = [s for s in _WELL_KNOWN_SYMBOLS if s not in found_symbols]
+
+    assert missing.height == 0 and not absent_entirely, (
+        f"Expected all of {_WELL_KNOWN_SYMBOLS} in all {n_partitions} partitions.\n"
+        f"Entirely absent: {absent_entirely}\n"
+        f"Present in fewer than all partitions:\n{missing}"
+    )
+    return pl.LazyFrame()
+
+
+def test_well_known_symbols_stable_across_partitions(
+    lf: pl.LazyFrame,
+) -> pl.DataFrame:
+    """For a set of well-known, large-cap symbols, the (Procrustes-aligned)
+    embedding should not change direction abruptly between adjacent rolling
+    windows: cosine similarity between consecutive not_before partitions must
+    stay above 0.75.
+
+    Violations are written to
+    dataplatform/test_outputs/symbol_embeddings_low_adjacent_similarity.csv
+    for inspection.
+    """
+    dates = sorted(lf.select("not_before").unique().collect().to_series().to_list())
+    embedding_cols = [c for c in lf.collect_schema().names() if c.startswith("e")]
+
+    # Only the well-known symbols' rows are ever collected — a small slice
+    # compared to the full universe of symbols across all partitions.
+    df = (
+        lf.filter(pl.col("symbol").is_in(_WELL_KNOWN_SYMBOLS))
+        .select(["symbol", "not_before", *embedding_cols])
+        .collect()
+    )
+
+    violations = []
+    for symbol in _WELL_KNOWN_SYMBOLS:
+        sub = (
+            df.filter(pl.col("symbol") == symbol)
+            .sort("not_before")
+            .select(["not_before", *embedding_cols])
+        )
+        by_date = {row[0]: np.array(row[1:], dtype=float) for row in sub.iter_rows()}
+
+        for prev_date, next_date in zip(dates, dates[1:]):
+            if prev_date not in by_date or next_date not in by_date:
+                continue  # covered by test_well_known_symbols_present_in_every_partition
+
+            a, b = by_date[prev_date], by_date[next_date]
+            cos_sim = a.dot(b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12)
+
+            if cos_sim < _MIN_ADJACENT_SIMILARITY:
+                violations.append(
+                    {
+                        "symbol": symbol,
+                        "not_before": prev_date,
+                        "next_not_before": next_date,
+                        "cosine_similarity": cos_sim,
+                    }
+                )
+
+    return pl.DataFrame(violations)
+
+
+def test_no_symbol_missing_from_good_symbols(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Every symbol present in silver.good_symbols must appear in at least one
+    symbol_embeddings partition. A symbol missing entirely (rather than just
+    before some not_before date) can never be matched by a downstream as-of
+    join on symbol_embeddings, e.g. gold.stocks_ml_ready.
+
+    Violations are written to
+    dataplatform/test_outputs/symbol_embeddings_missing_good_symbols.csv for
+    inspection.
+    """
+    good_symbols = GoodSymbolsSilver().read_from_disk().select("symbol").unique()
+    embedded_symbols = lf.select("symbol").unique()
+
+    missing = good_symbols.join(embedded_symbols, on="symbol", how="anti")
+    return missing

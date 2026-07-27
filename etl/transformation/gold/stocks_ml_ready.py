@@ -37,6 +37,7 @@ class StocksMlReadyGold(Model):
                 not_null(["timeframe", "symbol", "embedding"]),
                 unique(["timeframe", "symbol"]),
                 list_length("embedding", DEFAULT_EMBEDDING_SIZE),
+                test_symbols_are_restricted_to_good_symbols,
             ],
             dataplatform_root=dataplatform_root,
             kind="view",
@@ -141,3 +142,21 @@ def append_future_returns(
         )
 
     return labeler
+
+
+def test_symbols_are_restricted_to_good_symbols(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Every (symbol, timeframe) pair must be present in silver.good_symbols:
+    the inner join must not let any other symbol through."""
+    good_symbols = GoodSymbolsSilver().read_from_disk()
+
+    orphans = (
+        lf.select(["symbol", "timeframe"])
+        .join(good_symbols, on=["symbol", "timeframe"], how="anti")
+        .collect()
+    )
+
+    assert orphans.height == 0, (
+        f"Found {orphans.height} row(s) whose (symbol, timeframe) is not in "
+        f"silver.good_symbols.\nSample (up to 20):\n{orphans.head(20)}"
+    )
+    return pl.LazyFrame()

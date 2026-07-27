@@ -17,6 +17,7 @@ class StocksDailySilver(Model):
             quality_checks=[
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
+                test_all_candles_pairs_present,
             ],
             dataplatform_root=dataplatform_root,
         )
@@ -60,3 +61,20 @@ class StocksDailySilver(Model):
                 )
             )
         )
+
+
+def test_all_candles_pairs_present(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Every (symbol, timeframe) pair from candles_daily must appear in stocks_daily"""
+
+    candles_pairs = (
+        CandlesDailySilver("").read_from_disk().select(["symbol", "timeframe"]).unique()
+    )
+    stocks_pairs = lf.select(["symbol", "timeframe"]).unique()
+
+    missing = (
+        candles_pairs.join(stocks_pairs, on=["symbol", "timeframe"], how="anti")
+        .sort(["symbol", "timeframe"])
+        .collect()
+    )
+
+    return missing

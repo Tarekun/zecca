@@ -54,7 +54,10 @@ class CompanyTickersSilver(Model):
             layer="silver",
             quality_checks=[
                 not_null(["cik_str", "ticker"]),
+                # note that cik_str can appear more than once associated with different tickers
+                # example: cik=1652044, ticker=GOOGL,GOOG,GOOGM,GOOGN
                 unique(["cik_str", "ticker"]),
+                unique(["ticker"]),
             ],
             dataplatform_root=dataplatform_root,
         )
