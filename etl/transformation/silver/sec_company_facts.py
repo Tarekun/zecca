@@ -5,6 +5,7 @@ import polars as pl
 
 from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import not_null, unique
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
@@ -224,6 +225,9 @@ class SecCompanyFactsSilver(Model):
             name="sec_company_facts",
             layer="silver",
             dataplatform_root=dataplatform_root,
+            quality_checks=[
+                not_null(["cik", "source_file"]),
+            ],
         )
 
     def _build(self) -> pl.LazyFrame:

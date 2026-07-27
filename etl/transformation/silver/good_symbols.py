@@ -1,6 +1,7 @@
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import not_null, unique
 from etl.transformation.silver.stocks_rankings import StocksRankingsSilver
 
 RANK_THRESHOLD = 2500
@@ -9,7 +10,13 @@ RANK_THRESHOLD = 2500
 class GoodSymbolsSilver(Model):
     def __init__(self, dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT) -> None:
         super().__init__(
-            name="good_symbols", layer="silver", dataplatform_root=dataplatform_root
+            name="good_symbols",
+            layer="silver",
+            quality_checks=[
+                not_null(["timeframe", "symbol"]),
+                unique(["timeframe", "symbol"]),
+            ],
+            dataplatform_root=dataplatform_root,
         )
 
     def _build(self) -> pl.LazyFrame:

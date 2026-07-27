@@ -1,11 +1,14 @@
 from datetime import date
 import polars as pl
 
+from etl.transformation.quality_checks import not_null, unique
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 
 
-def _pad_series(lf: pl.LazyFrame, end_col: str, filed_col: str, today: date) -> pl.LazyFrame:
+def _pad_series(
+    lf: pl.LazyFrame, end_col: str, filed_col: str, today: date
+) -> pl.LazyFrame:
     """Expand a single metric's time series to one row per calendar day per CIK.
 
     An entry's value is only actually known once it's filed with the SEC, so
@@ -43,9 +46,9 @@ def _pad_series(lf: pl.LazyFrame, end_col: str, filed_col: str, today: date) -> 
         )
         .drop("_next_filed")
         .with_columns(
-            pl.date_ranges(pl.col(filed_col), pl.col("valid_until"), interval="1d").alias(
-                "reference_date"
-            )
+            pl.date_ranges(
+                pl.col(filed_col), pl.col("valid_until"), interval="1d"
+            ).alias("reference_date")
         )
         .explode("reference_date")
         .drop("valid_until")
@@ -185,6 +188,12 @@ class SecCompanyFactsPaddedSilver(Model):
         super().__init__(
             name="sec_company_facts_padded",
             layer="silver",
+            quality_checks=[
+                not_null(["cik", "reference_date", "last_filed"]),
+                # this one fails due to survivorship bias in symbols pulled from yfinance
+                # not_null(["ticker"]),
+                # unique(["cik", "reference_date"]),
+            ],
             dataplatform_root=dataplatform_root,
         )
 

@@ -5,6 +5,7 @@ from etl.logger import get_logger
 from etl.transformation.gold import StocksDailyGold
 from etl.transformation.silver import GoodSymbolsSilver, SymbolEmbeddingsSilver
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import not_null, unique
 
 logger = get_logger(__name__)
 
@@ -31,6 +32,10 @@ class StocksMlReadyGold(Model):
             name="stocks_ml_ready",
             layer="gold",
             partitioning_columns=["year", "month"],
+            quality_checks=[
+                not_null(["timeframe", "symbol", "embedding"]),
+                unique(["timeframe", "symbol"]),
+            ],
             dataplatform_root=dataplatform_root,
             kind="view",
         )

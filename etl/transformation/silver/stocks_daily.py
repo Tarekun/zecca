@@ -1,6 +1,7 @@
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import not_null, unique
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.sec_company_facts_padded import (
     SecCompanyFactsPaddedSilver,
@@ -13,6 +14,10 @@ class StocksDailySilver(Model):
             name="stocks_daily",
             layer="silver",
             partitioning_columns=["year", "month"],
+            quality_checks=[
+                not_null(["timeframe", "symbol"]),
+                unique(["timeframe", "symbol"]),
+            ],
             dataplatform_root=dataplatform_root,
         )
 
