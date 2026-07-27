@@ -10,7 +10,7 @@ logger = get_logger(__name__)
 
 
 # TODO in caso di IP ban mettere qualcosa di legit qua
-USER_AGENT = "Zecca s@a.net"
+USER_AGENT = "Mimma Sturbo darkion101@gmail.com"
 
 
 def download_and_unzip(url: str, dest_path: str, user_agent: str) -> None:
