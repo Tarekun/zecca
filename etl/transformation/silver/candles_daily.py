@@ -1,3 +1,4 @@
+from datetime import timedelta
 import polars as pl
 
 from etl.transformation.indicators import (
@@ -7,6 +8,13 @@ from etl.transformation.indicators import (
     arithmatic_return,
     sharpe_ratio,
     volatility,
+)
+from etl.transformation.quality_checks import (
+    column_comparison,
+    not_null,
+    unique,
+    freshness,
+    in_range,
 )
 from etl.transformation.utils import load_ticker_daily
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
@@ -190,6 +198,12 @@ class CandlesDailySilver(Model):
             name="candles_daily",
             layer="silver",
             partitioning_columns=["year", "month"],
+            quality_checks=[
+                not_null(["timeframe", "symbol"]),
+                unique(["timeframe", "symbol"]),
+                column_comparison("low", "<=", "high"),
+                freshness("timeframe", timedelta(days=3)),
+            ],
             dataplatform_root=dataplatform_root,
         )
         self.yfinance_data_path = yfinance_data_path

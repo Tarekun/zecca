@@ -7,10 +7,11 @@ import textwrap
 from abc import ABC, abstractmethod
 from pathlib import Path
 import polars as pl
-from typing import Literal
+from typing import Callable, Literal
 import yaml
 
 from etl.logger import get_logger
+from etl.transformation.quality_checks import *
 
 logger = get_logger(__name__)
 
@@ -25,6 +26,7 @@ class Model(ABC):
         partitioning_columns: list[str] = [],
         dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
         kind: Literal["table", "view"] = "table",
+        quality_checks: list[DataQualityCheck] = [],
     ) -> None:
         super().__init__()
         self.name = name
@@ -38,6 +40,7 @@ class Model(ABC):
         # this variable was defined anyway as a future proof flag for store FR processing
         self.strategy: Literal["fullrefresh"] = "fullrefresh"
         self.kind = kind
+        self.quality_checks = quality_checks
 
     def configure_dependencies(self, dependencies: list[type]) -> None:
         """Explicitly overrides dependency auto-discovery (see the `dependencies`
@@ -63,12 +66,56 @@ class Model(ABC):
         logger.info("Building from source data model %s", self.id)
         self._lf = self._build()
         try:
-            self._lf.collect_schema()
+            self._lf.collect_schema()  # type: ignore
         except pl.exceptions.PolarsError:
             logger.exception("%s build plan is invalid", self.id)
             raise
         logger.info("%s build plan ready and validated", self.id)
         return self._lf
+
+    def run_quality_checks(self) -> None:
+        """Runs every check declared in `data_quality_checks` against the
+        current lazy plan, raising DataQualityError if any of them fail.
+
+        A check fails either by returning a non-empty DataFrame/LazyFrame of
+        violating rows (written to a CSV under `test_outputs` for inspection)
+        or by raising an exception (reported as an error message only, with
+        no CSV since there are no rows to attribute the failure to)."""
+        if self._lf is None:
+            self._lf = self.read_from_disk()
+
+        failures = []
+        for check in self.quality_checks:
+            check_name = getattr(check, "__name__", repr(check))
+            logger.info(f"Running test {check_name} for model {self.id}")
+            try:
+                result = check(self._lf)
+                violations: pl.DataFrame = (
+                    result.collect()  # type: ignore you gotta be fucking kidding me
+                    if isinstance(result, pl.LazyFrame)
+                    else result
+                )
+            except Exception as exc:
+                failures.append(f"{check_name} raised {exc.__class__.__name__}: {exc}")
+                continue
+
+            if violations.height > 0:
+                output_dir = (
+                    Path(self.dataplatform_root)
+                    / "test_outputs"
+                    / self.layer
+                    / self.name
+                )
+                output_dir.mkdir(parents=True, exist_ok=True)
+                csv_path = output_dir / f"{check_name}.csv"
+                violations.write_csv(csv_path)
+                failures.append(
+                    f"{check_name} found {violations.height} violating row(s), "
+                    f"written to {csv_path}"
+                )
+
+        if failures:
+            raise DataQualityError(self.id, failures)
 
     @property
     def df(self) -> pl.DataFrame:

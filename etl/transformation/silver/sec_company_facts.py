@@ -5,6 +5,7 @@ import polars as pl
 
 from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import not_null, unique
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
@@ -224,7 +225,50 @@ class SecCompanyFactsSilver(Model):
             name="sec_company_facts",
             layer="silver",
             dataplatform_root=dataplatform_root,
+            quality_checks=[
+                not_null(["cik", "source_file"]),
+                test_each_cik_has_at_least_one_metric,
+                test_cik_count_matches_file_count,
+            ],
         )
 
     def _build(self) -> pl.LazyFrame:
         return compute_from_source(Path(self.dataplatform_root) / "raw" / "sec").lazy()
+
+
+def test_each_cik_has_at_least_one_metric(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Every CIK in the silver model must have at least one row with a non-null
+    shares_outstanding or non_affiliate_valuation.
+
+    CIKs with no metric data are written to
+    dataplatform/test_outputs/sec_company_facts_missing_val.csv for inspection.
+    """
+    metrics_lf = lf
+    ciks_with_data = (
+        metrics_lf.filter(
+            pl.col("shares_outstanding").is_not_null()
+            | pl.col("non_affiliate_valuation").is_not_null()
+        )
+        .select("cik")
+        .unique()
+    )
+    all_ciks = metrics_lf.select("cik").unique()
+
+    missing_val = all_ciks.join(ciks_with_data, on="cik", how="anti").sort("cik")
+    return missing_val
+
+
+def test_cik_count_matches_file_count(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """The number of distinct CIK values in the silver model must equal the number
+    of source JSON files under dataplatform/raw/sec — one row (possibly null) per file.
+    """
+    file_count = len(
+        list(Path(f"./{DEFAULT_DATAPLATFORM_ROOT}/raw/sec").glob("*.json"))
+    )
+    distinct_ciks = lf.select(pl.col("cik").n_unique()).collect().item()
+
+    assert distinct_ciks == file_count, (
+        f"Expected {file_count} distinct CIK values (one per source file) "
+        f"but found {distinct_ciks}."
+    )
+    return pl.LazyFrame()

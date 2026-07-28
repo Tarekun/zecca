@@ -1,11 +1,14 @@
 from datetime import date
 import polars as pl
 
+from etl.transformation.quality_checks import not_null, unique, column_comparison
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 
 
-def _pad_series(lf: pl.LazyFrame, end_col: str, filed_col: str, today: date) -> pl.LazyFrame:
+def _pad_series(
+    lf: pl.LazyFrame, end_col: str, filed_col: str, today: date
+) -> pl.LazyFrame:
     """Expand a single metric's time series to one row per calendar day per CIK.
 
     An entry's value is only actually known once it's filed with the SEC, so
@@ -43,9 +46,9 @@ def _pad_series(lf: pl.LazyFrame, end_col: str, filed_col: str, today: date) -> 
         )
         .drop("_next_filed")
         .with_columns(
-            pl.date_ranges(pl.col(filed_col), pl.col("valid_until"), interval="1d").alias(
-                "reference_date"
-            )
+            pl.date_ranges(
+                pl.col(filed_col), pl.col("valid_until"), interval="1d"
+            ).alias("reference_date")
         )
         .explode("reference_date")
         .drop("valid_until")
@@ -185,8 +188,84 @@ class SecCompanyFactsPaddedSilver(Model):
         super().__init__(
             name="sec_company_facts_padded",
             layer="silver",
+            quality_checks=[
+                not_null(["cik", "reference_date", "last_filed"]),
+                # this one fails due to survivorship bias in symbols pulled from yfinance
+                not_null(["ticker"]),
+                unique(["cik", "reference_date"]),
+                column_comparison("reference_date", ">=", "last_filed"),
+                test_reference_date_continuity_per_cik,
+                test_every_filing_filed_date_present_as_reference_date,
+            ],
             dataplatform_root=dataplatform_root,
         )
 
     def _build(self) -> pl.LazyFrame:
         return compute_from_source()
+
+
+def test_reference_date_continuity_per_cik(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """For every CIK the reference_date column must be continuous — no gaps between
+    the first and last date observed for that CIK.
+
+    CIKs with gaps are written to
+    dataplatform/test_outputs/sec_company_facts_padded_date_gaps.csv.
+    """
+    dates_lf = lf.select(["cik", "reference_date"])
+    bounds = dates_lf.group_by("cik").agg(
+        pl.col("reference_date").min().alias("first_date"),
+        pl.col("reference_date").max().alias("last_date"),
+    )
+
+    expected = (
+        bounds.with_columns(
+            pl.date_ranges(
+                pl.col("first_date"), pl.col("last_date"), interval="1d"
+            ).alias("reference_date")
+        )
+        .explode("reference_date")
+        .select(["cik", "reference_date"])
+    )
+    actual = dates_lf.unique()
+    missing = expected.join(actual, on=["cik", "reference_date"], how="anti")
+    return missing
+
+
+def test_every_filing_filed_date_present_as_reference_date(
+    lf: pl.LazyFrame,
+) -> pl.LazyFrame:
+    """Every (cik, filed_date) pair for each metric in sec_company_facts must
+    appear as a (cik, reference_date) row in sec_company_facts_padded — padding
+    only fills the gaps between filings, it must never drop a filing's own date.
+
+    reference_date is anchored on the filing date (not the reported period end)
+    since that's when a value actually becomes public; see _pad_series.
+
+    Missing (cik, filed_date, metric) triples are written to
+    dataplatform/test_outputs/sec_company_facts_padded_missing_filing_dates.csv.
+    """
+
+    reference_dates = lf.select(["cik", "reference_date"]).unique()
+    facts_lf = SecCompanyFactsSilver().read_from_disk()
+
+    missing_frames = []
+    for filed_col in [
+        "shares_outstanding_filed",
+        "public_float_filed",
+        "earnings_filed",
+    ]:
+        filings = (
+            facts_lf.select(["cik", filed_col])
+            .filter(pl.col("cik").is_not_null() & pl.col(filed_col).is_not_null())
+            .unique()
+            .rename({filed_col: "reference_date"})
+        )
+        missing = (
+            filings.join(reference_dates, on=["cik", "reference_date"], how="anti")
+            .with_columns(pl.lit(filed_col).alias("metric"))
+            .collect()
+        )
+        if missing.height > 0:
+            missing_frames.append(missing)
+
+    return pl.concat(missing_frames)
