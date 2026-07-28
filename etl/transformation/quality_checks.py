@@ -100,13 +100,17 @@ def rejected_values(column: str, values: list) -> DataQualityCheck:
     return check
 
 
-def column_comparison(column_a: str, op: str, column_b: str) -> DataQualityCheck:
+def column_comparison(
+    column_a: str,
+    op: Literal["<", "<=", ">", ">=", "==", "!="],
+    column_b: str,
+) -> DataQualityCheck:
     """Builds a check that fails on any row where `column_a <op> column_b`
     does not hold, e.g. `column_comparison("low", "<=", "high")`.
 
     `op` is one of "<", "<=", ">", ">=", "==", "!="."""
 
-    COMPARISON_OPS: dict[str, tuple[Callable[[pl.Expr, pl.Expr], pl.Expr], str]] = {
+    COMPARISON_OPS = {
         "<": (operator.lt, "lt"),
         "<=": (operator.le, "le"),
         ">": (operator.gt, "gt"),
@@ -114,10 +118,6 @@ def column_comparison(column_a: str, op: str, column_b: str) -> DataQualityCheck
         "==": (operator.eq, "eq"),
         "!=": (operator.ne, "ne"),
     }
-    if op not in COMPARISON_OPS:
-        raise ValueError(
-            f"Unsupported comparison operator {op!r}, expected one of {sorted(COMPARISON_OPS)}"
-        )
     compare, op_name = COMPARISON_OPS[op]
 
     def check(lf: pl.LazyFrame) -> pl.LazyFrame:

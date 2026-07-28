@@ -39,7 +39,6 @@ def etl(config: Config):
             models = configured_models(config)
             failures = []
             for m in models:
-                m.read_from_disk()
                 try:
                     m.run_quality_checks()
                 except DataQualityError as exc:

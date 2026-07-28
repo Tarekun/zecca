@@ -82,9 +82,7 @@ class Model(ABC):
         or by raising an exception (reported as an error message only, with
         no CSV since there are no rows to attribute the failure to)."""
         if self._lf is None:
-            raise RuntimeError(
-                f"{self.__class__.__name__}.run_quality_checks() called before build() or read_from_disk()."
-            )
+            self._lf = self.read_from_disk()
 
         failures = []
         for check in self.quality_checks:
