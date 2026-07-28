@@ -5,42 +5,50 @@ from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 
 
-def _pad_series(lf: pl.LazyFrame, end_col: str, today: date) -> pl.LazyFrame:
+def _pad_series(lf: pl.LazyFrame, end_col: str, filed_col: str, today: date) -> pl.LazyFrame:
     """Expand a single metric's time series to one row per calendar day per CIK.
 
-    For each CIK the rows are sorted by ``end_col`` and padded forward: each
-    entry's value covers every date from ``end_col`` up to (but not including)
-    the next entry's ``end_col`` date.  The most recent entry per CIK is padded
-    forward to ``today``.  Rows with a null ``end_col`` are dropped.
+    An entry's value is only actually known once it's filed with the SEC, so
+    padding forward from ``end_col`` (the reported period) would make the value
+    available before the public could have known it — a look-ahead bias.
+    Instead, for each CIK the rows are sorted by ``filed_col`` and padded
+    forward from there: each entry's value covers every date from ``filed_col``
+    up to (but not including) the next entry's ``filed_col`` date. The most
+    recent entry per CIK is padded forward to ``today``. Rows with a null
+    ``end_col`` or ``filed_col`` are dropped.
 
     Args:
-        lf:      LazyFrame containing at least ``cik`` and ``end_col``.
-        end_col: Name of the Date column that anchors this metric's time series.
-        today:   Ceiling date for the most recent entry (exclusive upper bound).
+        lf:        LazyFrame containing at least ``cik``, ``end_col``, and
+                   ``filed_col``.
+        end_col:   Name of the Date column giving the metric's reported period end.
+        filed_col: Name of the Date column giving the metric's filing date; this
+                   is what ``reference_date`` is actually anchored to.
+        today:     Ceiling date for the most recent entry (exclusive upper bound).
 
     Returns:
-        LazyFrame with the same columns as ``lf`` minus ``end_col``, plus a
+        LazyFrame with the same columns as ``lf`` (``end_col`` and ``filed_col``
+        included, reflecting the currently active entry), plus a
         ``reference_date`` (Date) column.
     """
     return (
-        lf.filter(pl.col(end_col).is_not_null())
-        .sort(["cik", end_col])
-        .with_columns(pl.col(end_col).shift(-1).over("cik").alias("_next_end"))
+        lf.filter(pl.col(end_col).is_not_null() & pl.col(filed_col).is_not_null())
+        .sort(["cik", filed_col, end_col])
+        .with_columns(pl.col(filed_col).shift(-1).over("cik").alias("_next_filed"))
         .with_columns(
-            pl.when(pl.col("_next_end").is_null())
+            pl.when(pl.col("_next_filed").is_null())
             .then(pl.lit(today))
-            .otherwise(pl.col("_next_end") - pl.duration(days=1))
+            .otherwise(pl.col("_next_filed") - pl.duration(days=1))
             .cast(pl.Date)
             .alias("valid_until")
         )
-        .drop("_next_end")
+        .drop("_next_filed")
         .with_columns(
-            pl.date_ranges(pl.col(end_col), pl.col("valid_until"), interval="1d").alias(
+            pl.date_ranges(pl.col(filed_col), pl.col("valid_until"), interval="1d").alias(
                 "reference_date"
             )
         )
         .explode("reference_date")
-        .drop(["valid_until", end_col])
+        .drop("valid_until")
     )
 
 
@@ -50,8 +58,11 @@ def compute_from_source() -> pl.LazyFrame:
 
     EntityCommonStockSharesOutstanding, EntityPublicFloat, and annual
     NetIncomeLoss are padded separately so that entries from one metric never
-    influence the forward-fill boundaries of another.  The three padded series
-    are then outer-joined on (cik, reference_date).
+    influence the forward-fill boundaries of another.  Each series is anchored
+    on its own filing date rather than its reported period end (see
+    ``_pad_series``), so ``reference_date`` never precedes the date a value was
+    actually made public.  The three padded series are then outer-joined on
+    (cik, reference_date).
 
     Args:
         dataplatform_root: Root of the dataplatform directory (e.g. "./dataplatform").
@@ -59,15 +70,21 @@ def compute_from_source() -> pl.LazyFrame:
     Returns:
         LazyFrame with columns:
 
-        - ``cik``                     – company CIK (integer)
-        - ``entity_name``             – company name
-        - ``ticker``                  – exchange ticker (null when not in company_tickers)
-        - ``reference_date``          – calendar date (Date)
-        - ``shares_outstanding_fp``   – fiscal period of the active shares report
-        - ``shares_outstanding``      – shares outstanding on ``reference_date``
+        - ``cik``                      – company CIK (integer)
+        - ``entity_name``              – company name
+        - ``ticker``                   – exchange ticker (null when not in company_tickers)
+        - ``reference_date``           – calendar date (Date)
+        - ``last_filed``               – filing date of the most recently filed of the
+                                          three metrics' currently active entries
+        - ``shares_outstanding_fp``    – fiscal period of the active shares report
+        - ``shares_outstanding``       – shares outstanding on ``reference_date``
+        - ``shares_outstanding_end``   – period end date of the active shares report
         - ``non_affiliate_valuation``  – public float in USD on ``reference_date``
         - ``estimated_float_shares``   – non_affiliate_valuation / open price on the filing date
-        - ``earnings``                  – most recently reported annual net income (USD)
+        - ``public_float_end``         – period end date of the active public float report
+        - ``earnings``                 – most recently reported annual net income (USD)
+        - ``earnings_start``           – fiscal year start date of the active net income report
+        - ``earnings_end``             – fiscal year end date of the active net income report
     """
 
     today = date.today()
@@ -83,11 +100,13 @@ def compute_from_source() -> pl.LazyFrame:
             [
                 "cik",
                 "shares_outstanding_end",
+                "shares_outstanding_filed",
                 "shares_outstanding_fp",
                 "shares_outstanding",
             ]
         ),
         end_col="shares_outstanding_end",
+        filed_col="shares_outstanding_filed",
         today=today,
     )
     float_padded = _pad_series(
@@ -95,29 +114,43 @@ def compute_from_source() -> pl.LazyFrame:
             [
                 "cik",
                 "public_float_end",
+                "public_float_filed",
                 "non_affiliate_valuation",
                 "estimated_float_shares",
             ]
         ),
         end_col="public_float_end",
+        filed_col="public_float_filed",
         today=today,
     )
     earnings_padded = _pad_series(
-        lf.select(["cik", "earnings_end", "earnings"]),
+        lf.select(
+            ["cik", "earnings_start", "earnings_end", "earnings_filed", "earnings"]
+        ),
         end_col="earnings_end",
+        filed_col="earnings_filed",
         today=today,
     )
 
-    combined = shares_padded.join(
-        float_padded,
-        on=["cik", "reference_date"],
-        how="full",
-        coalesce=True,
-    ).join(
-        earnings_padded,
-        on=["cik", "reference_date"],
-        how="full",
-        coalesce=True,
+    combined = (
+        shares_padded.join(
+            float_padded,
+            on=["cik", "reference_date"],
+            how="full",
+            coalesce=True,
+        )
+        .join(
+            earnings_padded,
+            on=["cik", "reference_date"],
+            how="full",
+            coalesce=True,
+        )
+        .with_columns(
+            pl.max_horizontal(
+                "shares_outstanding_filed", "public_float_filed", "earnings_filed"
+            ).alias("last_filed")
+        )
+        .drop(["shares_outstanding_filed", "public_float_filed", "earnings_filed"])
     )
     entity_names = lf.select(["cik", "entity_name", "ticker"]).unique(
         subset=["cik"], keep="first"
@@ -131,11 +164,16 @@ def compute_from_source() -> pl.LazyFrame:
                 "entity_name",
                 "ticker",
                 "reference_date",
+                "last_filed",
                 "shares_outstanding_fp",
                 "shares_outstanding",
+                "shares_outstanding_end",
                 "non_affiliate_valuation",
                 "estimated_float_shares",
+                "public_float_end",
                 "earnings",
+                "earnings_start",
+                "earnings_end",
             ]
         )
         .sort(["cik", "reference_date"])

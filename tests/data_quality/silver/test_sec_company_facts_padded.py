@@ -6,6 +6,7 @@ import pytest
 
 sys.path.append(str(Path(__file__).parents[3]))
 
+from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 from etl.transformation.silver.sec_company_facts_padded import (
     SecCompanyFactsPaddedSilver,
 )
@@ -13,6 +14,7 @@ from etl.transformation.silver.sec_company_facts_padded import (
 TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
 
 lf = SecCompanyFactsPaddedSilver().read_from_disk()
+facts_lf = SecCompanyFactsSilver().read_from_disk()
 
 
 def test_no_null_cik():
@@ -94,4 +96,52 @@ def test_reference_date_continuity_per_cik():
             f"{'...' if len(affected) > 20 else ''}\n"
             f"Gap counts written to dataplatform/test_outputs/sec_company_facts_padded_date_gaps.csv\n"
             f"Sample (up to 20):\n{missing.sort(['cik', 'reference_date']).head(20)}"
+        )
+
+
+def test_every_filing_filed_date_present_as_reference_date():
+    """Every (cik, filed_date) pair for each metric in sec_company_facts must
+    appear as a (cik, reference_date) row in sec_company_facts_padded — padding
+    only fills the gaps between filings, it must never drop a filing's own date.
+
+    reference_date is anchored on the filing date (not the reported period end)
+    since that's when a value actually becomes public; see _pad_series.
+
+    Missing (cik, filed_date, metric) triples are written to
+    dataplatform/test_outputs/sec_company_facts_padded_missing_filing_dates.csv.
+    """
+    reference_dates = lf.select(["cik", "reference_date"]).unique()
+
+    missing_frames = []
+    for filed_col in ["shares_outstanding_filed", "public_float_filed", "earnings_filed"]:
+        filings = (
+            facts_lf.select(["cik", filed_col])
+            .filter(pl.col("cik").is_not_null() & pl.col(filed_col).is_not_null())
+            .unique()
+            .rename({filed_col: "reference_date"})
+        )
+        missing = (
+            filings.join(reference_dates, on=["cik", "reference_date"], how="anti")
+            .with_columns(pl.lit(filed_col).alias("metric"))
+            .collect()
+        )
+        if missing.height > 0:
+            missing_frames.append(missing)
+
+    if missing_frames:
+        combined_missing = pl.concat(missing_frames).sort(
+            ["metric", "cik", "reference_date"]
+        )
+        TEST_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        combined_missing.write_csv(
+            TEST_OUTPUTS / "sec_company_facts_padded_missing_filing_dates.csv"
+        )
+
+        affected = combined_missing.select("cik").unique().to_series().to_list()
+        pytest.fail(
+            f"{combined_missing.height} (cik, filed_date) filing pairs from "
+            f"sec_company_facts are missing from sec_company_facts_padded's reference_date.\n"
+            f"Affected CIKs ({len(affected)}): {affected[:20]}"
+            f"{'...' if len(affected) > 20 else ''}\n"
+            f"Full list written to dataplatform/test_outputs/sec_company_facts_padded_missing_filing_dates.csv"
         )
