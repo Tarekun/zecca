@@ -1,7 +1,7 @@
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique, foreign_key
+from etl.transformation.quality_checks import not_empty, not_null, unique, foreign_key
 from etl.transformation.silver.stocks_rankings import StocksRankingsSilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
@@ -14,6 +14,7 @@ class GoodSymbolsSilver(Model):
             name="good_symbols",
             layer="silver",
             quality_checks=[
+                not_empty(),
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
                 foreign_key(["timeframe", "symbol"], target_model=CandlesDailySilver),

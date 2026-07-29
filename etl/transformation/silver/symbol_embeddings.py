@@ -6,7 +6,7 @@ from scipy.linalg import orthogonal_procrustes
 from sklearn.decomposition import TruncatedSVD
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import not_empty, not_null, unique
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.good_symbols import GoodSymbolsSilver
 
@@ -181,6 +181,7 @@ class SymbolEmbeddingsSilver(Model):
             layer="silver",
             partitioning_columns=["not_before"],
             quality_checks=[
+                not_empty(),
                 not_null(
                     [
                         "not_before",

@@ -2,7 +2,13 @@ from datetime import timedelta
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique, in_range, foreign_key
+from etl.transformation.quality_checks import (
+    foreign_key,
+    in_range,
+    not_empty,
+    not_null,
+    unique,
+)
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
@@ -47,6 +53,7 @@ class StocksRankingsSilver(Model):
             name="stocks_rankings",
             layer="silver",
             quality_checks=[
+                not_empty(),
                 not_null(["timeframe", "symbol", "float_adjusted_market_cap_rank"]),
                 unique(["timeframe", "symbol"]),
                 in_range("float_adjusted_market_cap_rank", min_value=1),

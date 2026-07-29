@@ -6,7 +6,7 @@ from etl.transformation.gold import StocksDailyGold
 from etl.transformation.silver import GoodSymbolsSilver, SymbolEmbeddingsSilver
 from etl.transformation.silver.symbol_embeddings import DEFAULT_EMBEDDING_SIZE
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique, list_length
+from etl.transformation.quality_checks import list_length, not_empty, not_null, unique
 
 logger = get_logger(__name__)
 
@@ -34,6 +34,7 @@ class StocksMlReadyGold(Model):
             layer="gold",
             partitioning_columns=["year", "month"],
             quality_checks=[
+                not_empty(),
                 not_null(["timeframe", "symbol", "embedding"]),
                 unique(["timeframe", "symbol"]),
                 list_length("embedding", DEFAULT_EMBEDDING_SIZE),

@@ -12,6 +12,7 @@ from etl.transformation.indicators import (
 )
 from etl.transformation.quality_checks import (
     column_comparison,
+    not_empty,
     not_null,
     unique,
     freshness,
@@ -199,6 +200,7 @@ class CandlesDailySilver(Model):
             layer="silver",
             partitioning_columns=["year", "month"],
             quality_checks=[
+                not_empty(),
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
                 column_comparison("low", "<=", "high"),

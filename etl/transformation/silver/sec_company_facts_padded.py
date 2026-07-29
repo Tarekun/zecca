@@ -1,7 +1,13 @@
 from datetime import date
 import polars as pl
 
-from etl.transformation.quality_checks import not_null, unique, column_comparison
+from etl.transformation.quality_checks import (
+    column_comparison,
+    no_gaps,
+    not_empty,
+    not_null,
+    unique,
+)
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 
@@ -189,12 +195,13 @@ class SecCompanyFactsPaddedSilver(Model):
             name="sec_company_facts_padded",
             layer="silver",
             quality_checks=[
+                not_empty(),
                 not_null(["cik", "reference_date", "last_filed"]),
                 # this one fails due to survivorship bias in symbols pulled from yfinance
                 not_null(["ticker"]),
                 unique(["cik", "reference_date"]),
                 column_comparison("reference_date", ">=", "last_filed"),
-                test_reference_date_continuity_per_cik,
+                no_gaps("reference_date", group_by="cik"),
                 test_every_filing_filed_date_present_as_reference_date,
             ],
             dataplatform_root=dataplatform_root,
@@ -202,33 +209,6 @@ class SecCompanyFactsPaddedSilver(Model):
 
     def _build(self) -> pl.LazyFrame:
         return compute_from_source()
-
-
-def test_reference_date_continuity_per_cik(lf: pl.LazyFrame) -> pl.LazyFrame:
-    """For every CIK the reference_date column must be continuous — no gaps between
-    the first and last date observed for that CIK.
-
-    CIKs with gaps are written to
-    dataplatform/test_outputs/sec_company_facts_padded_date_gaps.csv.
-    """
-    dates_lf = lf.select(["cik", "reference_date"])
-    bounds = dates_lf.group_by("cik").agg(
-        pl.col("reference_date").min().alias("first_date"),
-        pl.col("reference_date").max().alias("last_date"),
-    )
-
-    expected = (
-        bounds.with_columns(
-            pl.date_ranges(
-                pl.col("first_date"), pl.col("last_date"), interval="1d"
-            ).alias("reference_date")
-        )
-        .explode("reference_date")
-        .select(["cik", "reference_date"])
-    )
-    actual = dates_lf.unique()
-    missing = expected.join(actual, on=["cik", "reference_date"], how="anti")
-    return missing
 
 
 def test_every_filing_filed_date_present_as_reference_date(
