@@ -9,6 +9,9 @@ from etl.transformation.silver.sec_indicators import SecIndicatorsSilver
 from etl.transformation.silver.stocks_rankings import StocksRankingsSilver
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 from etl.transformation.silver.symbol_embeddings import SymbolEmbeddingsSilver
+from etl.transformation.silver.visibility_graph_indicators import (
+    VisibilityGraphIndicatorsSilver,
+)
 
 __all__ = [
     "CandlesDailySilver",
@@ -20,4 +23,5 @@ __all__ = [
     "StocksDailySilver",
     "SecIndicatorsSilver",
     "SymbolEmbeddingsSilver",
+    "VisibilityGraphIndicatorsSilver",
 ]
