@@ -18,6 +18,7 @@ class StocksDailyGold(Model):
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
             ],
+            kind="view",
             dataplatform_root=dataplatform_root,
         )
 
