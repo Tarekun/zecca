@@ -2,12 +2,7 @@ ingestion_dir: dataplatform/raw
 incremental: True
 backup: True
 
-# models selected for daily processing
-selected:
-  - candles_daily
-  - company_tickers
-  - good_symbols
-  - sec_company_facts
-  - sec_company_facts_padded
-  - stocks_daily
-  - stocks_rankings
+# models skipped in daily processing
+skip:
+  - silver.sec_indicators
+  - gold.sec_indicators
