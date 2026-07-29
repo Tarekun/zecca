@@ -81,8 +81,8 @@ def build_models(config: Config, layer: str):
     models = configured_models(config)
     models = [m for m in models if m.layer == layer]
 
-    # for model in build_execution_plan(models):
-    #     model.build_store_free()
+    for model in build_execution_plan(models):
+        model.build_store_free()
 
 
 def build_everything(config: Config):

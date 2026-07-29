@@ -1,7 +1,6 @@
 ingestion_dir: dataplatform/raw
 incremental: True
-backup: False
-# backup: True
+backup: True
 
 # models skipped in daily processing
 skip:
