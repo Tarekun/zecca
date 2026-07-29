@@ -35,7 +35,7 @@ def etl(config: Config):
             build_everything(config)
             logger.info("All models built correctly!")
 
-        if config.operation in ["test"]:
+        if config.operation in ["test", "full"]:
             models = configured_models(config)
             failures = []
             for m in models:

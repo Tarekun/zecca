@@ -2,7 +2,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import not_empty, not_null, unique
 from etl.transformation.silver.sec_indicators import SecIndicatorsSilver
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
@@ -15,6 +15,7 @@ class SecIndicatorsGold(Model):
             name="sec_indicators",
             layer="gold",
             quality_checks=[
+                not_empty(),
                 not_null(["namespace", "indicator"]),
                 unique(["namespace", "indicator"]),
             ],

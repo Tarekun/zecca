@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import matches_regex, not_empty, not_null, unique
 
 
 def compute_from_source(raw_data_path: Path) -> pl.LazyFrame:
@@ -52,11 +52,13 @@ class CompanyTickersSilver(Model):
             name="company_tickers",
             layer="silver",
             quality_checks=[
+                not_empty(),
                 not_null(["cik_str", "ticker"]),
                 # note that cik_str can appear more than once associated with different tickers
                 # example: cik=1652044, ticker=GOOGL,GOOG,GOOGM,GOOGN
                 unique(["cik_str", "ticker"]),
                 unique(["ticker"]),
+                matches_regex("ticker", r"[A-Za-z0-9.\-]+"),
             ],
             dataplatform_root=dataplatform_root,
         )

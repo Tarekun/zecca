@@ -163,6 +163,85 @@ def foreign_key(
     return check
 
 
+def not_empty() -> DataQualityCheck:
+    """Builds a check that fails if the LazyFrame has no rows at all.
+
+    Every other check in this module is vacuously true on an empty frame, so
+    an upstream source that silently returns nothing would otherwise pass
+    every declared check."""
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame:
+        return lf.select(pl.len().alias("row_count")).filter(pl.col("row_count") == 0)
+
+    check.__name__ = "not_empty"
+    return check
+
+
+def is_finite(columns: str | list[str]) -> DataQualityCheck:
+    """Builds a check that fails on any row where one of `columns` is
+    infinite or NaN. Null values pass; use `not_null` separately for that."""
+    columns = [columns] if isinstance(columns, str) else list(columns)
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame:
+        return lf.filter(
+            pl.any_horizontal(
+                # TODO th is up with not null?
+                pl.col(c).is_not_null() & ~pl.col(c).is_finite()
+                for c in columns
+            )
+        )
+
+    check.__name__ = f"is_finite_{'_'.join(columns)}"
+    return check
+
+
+def matches_regex(column: str, pattern: str) -> DataQualityCheck:
+    """Builds a check that fails on any row where `column`'s value does not
+    fully match `pattern`. Null values pass; use `not_null` separately for
+    that."""
+
+    full_pattern = f"^(?:{pattern})$"
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame:
+        return lf.filter(
+            pl.col(column).is_not_null() & ~pl.col(column).str.contains(full_pattern)
+        )
+
+    check.__name__ = f"matches_regex_{column}"
+    return check
+
+
+def no_gaps(date_column: str, group_by: str | list[str]) -> DataQualityCheck:
+    """Builds a check that fails if `date_column` (Date-typed) has any missing
+    calendar day between the min and max value observed within each
+    `group_by` group, i.e. the series must be daily-continuous per group.
+
+    Not suitable for data with expected calendar gaps (e.g. trading days,
+    which skip weekends/holidays) -- there, a gap isn't a quality problem."""
+    group_by = [group_by] if isinstance(group_by, str) else list(group_by)
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame:
+        dates_lf = lf.select([*group_by, date_column])
+        bounds = dates_lf.group_by(group_by).agg(
+            pl.col(date_column).min().alias("_first"),
+            pl.col(date_column).max().alias("_last"),
+        )
+        expected = (
+            bounds.with_columns(
+                pl.date_ranges(pl.col("_first"), pl.col("_last"), interval="1d").alias(
+                    date_column
+                )
+            )
+            .explode(date_column)
+            .select([*group_by, date_column])
+        )
+        actual = dates_lf.unique()
+        return expected.join(actual, on=[*group_by, date_column], how="anti")
+
+    check.__name__ = f"no_gaps_{date_column}_{'_'.join(group_by)}"
+    return check
+
+
 def unique(columns: str | list[str]) -> DataQualityCheck:
     """Builds a check that fails on any row whose combination of `columns` is
     shared by more than one row, i.e. `columns` is not a unique (composite) key."""

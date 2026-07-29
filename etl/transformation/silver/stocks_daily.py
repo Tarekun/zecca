@@ -1,7 +1,15 @@
+from datetime import timedelta
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import (
+    foreign_key,
+    freshness,
+    is_finite,
+    not_empty,
+    not_null,
+    unique,
+)
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.sec_company_facts_padded import (
     SecCompanyFactsPaddedSilver,
@@ -15,15 +23,19 @@ class StocksDailySilver(Model):
             layer="silver",
             partitioning_columns=["year", "month"],
             quality_checks=[
+                not_empty(),
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
+                freshness("timeframe", timedelta(days=3)),
+                foreign_key(["timeframe", "symbol"], target_model=CandlesDailySilver),
+                is_finite(["price_to_earnings", "earnings_per_share"]),
                 test_all_candles_pairs_present,
             ],
             dataplatform_root=dataplatform_root,
         )
 
     def _build(self) -> pl.LazyFrame:
-        candles = CandlesDailySilver("").read_from_disk()
+        candles = CandlesDailySilver().read_from_disk()
         sec = (
             SecCompanyFactsPaddedSilver()
             .read_from_disk()

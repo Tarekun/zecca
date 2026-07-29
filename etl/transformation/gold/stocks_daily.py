@@ -3,7 +3,7 @@ import polars as pl
 from etl.logger import get_logger
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import not_empty, not_null, unique
 
 logger = get_logger(__name__)
 
@@ -15,6 +15,7 @@ class StocksDailyGold(Model):
             layer="gold",
             partitioning_columns=["year", "month"],
             quality_checks=[
+                not_empty(),
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
             ],
