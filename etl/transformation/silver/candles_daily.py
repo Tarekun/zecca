@@ -1,4 +1,5 @@
 from datetime import timedelta
+from pathlib import Path
 import polars as pl
 
 from etl.transformation.indicators import (
@@ -23,7 +24,7 @@ from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 _LOOKBACKS = [1, 5, 14, 20, 30, 62, 126, 252]
 
 
-def compute_from_source(yfinance_data_path: str) -> pl.LazyFrame:
+def compute_from_source(yfinance_data_path: Path) -> pl.LazyFrame:
     """Read ticker_daily parquet data and compute the full candles_daily indicator set.
 
     Replicates the logic of the dbt model ``silver/candles_daily.sql`` and its
@@ -191,7 +192,6 @@ def compute_from_source(yfinance_data_path: str) -> pl.LazyFrame:
 class CandlesDailySilver(Model):
     def __init__(
         self,
-        yfinance_data_path: str,
         dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__(
@@ -206,7 +206,6 @@ class CandlesDailySilver(Model):
             ],
             dataplatform_root=dataplatform_root,
         )
-        self.yfinance_data_path = yfinance_data_path
 
     def _build(self) -> pl.LazyFrame:
-        return compute_from_source(self.yfinance_data_path)
+        return compute_from_source(Path(self.dataplatform_root) / "raw")

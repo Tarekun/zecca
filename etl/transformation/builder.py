@@ -47,8 +47,8 @@ def _backup_transformed():
 
 def configured_models(config: Config) -> list[Model]:
     models = [
-        CompanyTickersSilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
-        CandlesDailySilver(f"{DEFAULT_DATAPLATFORM_ROOT}/raw/"),
+        CompanyTickersSilver(),
+        CandlesDailySilver(),
         SecCompanyFactsSilver(),
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),

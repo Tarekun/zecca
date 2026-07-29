@@ -6,7 +6,7 @@ from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.quality_checks import not_null, unique
 
 
-def compute_from_source(raw_data_path: str) -> pl.LazyFrame:
+def compute_from_source(raw_data_path: Path) -> pl.LazyFrame:
     """Parse the SEC company_tickers.json file and return a flat LazyFrame.
 
     The source file is a JSON object keyed by sequential integers (which are
@@ -23,7 +23,7 @@ def compute_from_source(raw_data_path: str) -> pl.LazyFrame:
         - ``title``   – company name
     """
 
-    file_path = Path(raw_data_path) / "company_tickers.json"
+    file_path = raw_data_path / "company_tickers.json"
 
     data = json.loads(file_path.read_bytes())
     rows = [
@@ -46,7 +46,6 @@ def compute_from_source(raw_data_path: str) -> pl.LazyFrame:
 class CompanyTickersSilver(Model):
     def __init__(
         self,
-        raw_data_path: str | None = None,
         dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
     ) -> None:
         super().__init__(
@@ -61,9 +60,6 @@ class CompanyTickersSilver(Model):
             ],
             dataplatform_root=dataplatform_root,
         )
-        self.raw_data_path = raw_data_path
 
     def _build(self) -> pl.LazyFrame:
-        if self.raw_data_path is None:
-            raise ValueError("raw_data_path is required to build CompanyTickersSilver")
-        return compute_from_source(self.raw_data_path)
+        return compute_from_source(Path(self.dataplatform_root) / "raw")
