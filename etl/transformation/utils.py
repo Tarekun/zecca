@@ -34,11 +34,13 @@ def load_ticker_daily(yfinance_data_path: str | Path) -> pl.LazyFrame:
     source_dir = data_path / "ticker_daily"
     files = sorted(str(p) for p in source_dir.glob("year=*/month=*/*.parquet"))
 
-    logger.info("Reading %d ticker_daily parquet file(s) from %s", len(files), source_dir)
+    logger.info(
+        "Reading %d ticker_daily parquet file(s) from %s", len(files), source_dir
+    )
     return pl.concat(
         [
-            pl.scan_parquet(f, extra_columns="ignore")
-            .select(_RAW_COLS)
+            pl.scan_parquet(f, extra_columns="ignore").select(_RAW_COLS)
+            # TODO: investigate the issue with source parquets that caused this
             .with_columns(pl.col("date").cast(pl.Datetime("us")))
             for f in files
         ],
