@@ -202,6 +202,18 @@ class CandlesDailySilver(Model):
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
                 column_comparison("low", "<=", "high"),
+                *[
+                    in_range(c, 0, 100)
+                    for c in [
+                        "rsi",
+                        "rsi_1d",
+                        "rsi_1w",
+                        "rsi_1m",
+                        "rsi_1q",
+                        "rsi_6m",
+                        "rsi_1y",
+                    ]
+                ],
                 freshness("timeframe", timedelta(days=3)),
             ],
             dataplatform_root=dataplatform_root,

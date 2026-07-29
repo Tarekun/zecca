@@ -7,6 +7,7 @@ from dateutil.relativedelta import relativedelta
 from ts2vg import NaturalVG
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import in_range
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.good_symbols import GoodSymbolsSilver
 
@@ -152,6 +153,10 @@ class VisibilityGraphIndicatorsSilver(Model):
         super().__init__(
             name="visibility_graph_indicators",
             layer="silver",
+            quality_checks=[
+                in_range("graph_density", 0, 1),
+                in_range("average_clustering_coefficient", 0, 1),
+            ],
             dataplatform_root=dataplatform_root,
         )
 

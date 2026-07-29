@@ -1,8 +1,10 @@
+from datetime import timedelta
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import not_null, unique, in_range, foreign_key
 from etl.transformation.silver.stocks_daily import StocksDailySilver
+from etl.transformation.silver.candles_daily import CandlesDailySilver
 
 
 def compute_from_source() -> pl.LazyFrame:
@@ -47,6 +49,8 @@ class StocksRankingsSilver(Model):
             quality_checks=[
                 not_null(["timeframe", "symbol", "float_adjusted_market_cap_rank"]),
                 unique(["timeframe", "symbol"]),
+                in_range("float_adjusted_market_cap_rank", min_value=1),
+                foreign_key(["timeframe", "symbol"], target_model=CandlesDailySilver),
             ],
             dataplatform_root=dataplatform_root,
         )

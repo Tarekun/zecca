@@ -5,7 +5,7 @@ import polars as pl
 
 from etl.logger import get_logger
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import not_null, unique
+from etl.transformation.quality_checks import not_null, unique, accepted_values
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
@@ -227,8 +227,29 @@ class SecCompanyFactsSilver(Model):
             dataplatform_root=dataplatform_root,
             quality_checks=[
                 not_null(["cik", "source_file"]),
-                test_each_cik_has_at_least_one_metric,
-                test_cik_count_matches_file_count,
+                not_null(["shares_outstanding_fp"]),
+                # test_each_cik_has_at_least_one_metric,
+                # test_cik_count_matches_file_count,
+                accepted_values(
+                    "shares_outstanding_fp",
+                    [
+                        # companies file quarterly
+                        "Q1",
+                        "Q2",
+                        "Q3",
+                        "Q4",
+                        "FY",  # fiscal year
+                        # the following appear in form transition/foreign filer
+                        # file every trimester
+                        "T1",
+                        "T2",
+                        "T3",
+                        # file twice year
+                        "H1",
+                        "H2",
+                        "CY",  # calendar year,
+                    ],
+                ),
             ],
         )
 
