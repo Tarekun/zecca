@@ -62,10 +62,17 @@ def configured_models(config: Config) -> list[Model]:
         SecIndicatorsGold(),
     ]
 
+    def matches_any(m: Model, selection: list[str]):
+        for pattern in selection:
+            if m.name == pattern or m.id == pattern:
+                return True
+
+        return False
+
     if config.selected is not None:
-        models = [m for m in models if m.name in config.selected]
+        models = [m for m in models if matches_any(m, config.selected)]
     if config.skip is not None:
-        models = [m for m in models if m.name not in config.skip]
+        models = [m for m in models if not matches_any(m, config.skip)]
 
     return models
 
@@ -74,8 +81,8 @@ def build_models(config: Config, layer: str):
     models = configured_models(config)
     models = [m for m in models if m.layer == layer]
 
-    for model in build_execution_plan(models):
-        model.build_store_free()
+    # for model in build_execution_plan(models):
+    #     model.build_store_free()
 
 
 def build_everything(config: Config):
