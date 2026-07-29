@@ -156,9 +156,7 @@ class VisibilityGraphIndicatorsSilver(Model):
         )
 
     def _build(self) -> pl.LazyFrame:
-        candles = CandlesDailySilver(
-            yfinance_data_path="", dataplatform_root=self.dataplatform_root
-        )
+        candles = CandlesDailySilver(dataplatform_root=self.dataplatform_root)
         good_symbols = GoodSymbolsSilver(dataplatform_root=self.dataplatform_root)
         lf = (
             candles.read_from_disk()

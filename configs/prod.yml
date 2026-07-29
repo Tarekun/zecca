@@ -5,4 +5,5 @@ backup: True
 # models skipped in daily processing
 skip:
   - silver.sec_indicators
+  - silver.visibility_graph_indicators
   - gold.sec_indicators
