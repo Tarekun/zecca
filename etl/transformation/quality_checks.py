@@ -185,7 +185,9 @@ def is_finite(columns: str | list[str]) -> DataQualityCheck:
     def check(lf: pl.LazyFrame) -> pl.LazyFrame:
         return lf.filter(
             pl.any_horizontal(
-                pl.col(c).is_not_null() & ~pl.col(c).is_finite() for c in columns
+                # TODO th is up with not null?
+                pl.col(c).is_not_null() & ~pl.col(c).is_finite()
+                for c in columns
             )
         )
 
