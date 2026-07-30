@@ -25,9 +25,7 @@ def load_log_returns(
     """Scan CandlesDailySilver from disk, restricted to [start_date, end_date)
     and to the symbol/timeframe/log_return_1d columns."""
 
-    model = CandlesDailySilver(
-        yfinance_data_path="", dataplatform_root=dataplatform_root
-    )
+    model = CandlesDailySilver(dataplatform_root=dataplatform_root)
     return (
         model.read_from_disk()
         .filter(pl.col("timeframe") >= start_date, pl.col("timeframe") < end_date)

@@ -79,7 +79,7 @@ def test_all_candles_pairs_present(lf: pl.LazyFrame) -> pl.LazyFrame:
     """Every (symbol, timeframe) pair from candles_daily must appear in stocks_daily"""
 
     candles_pairs = (
-        CandlesDailySilver("").read_from_disk().select(["symbol", "timeframe"]).unique()
+        CandlesDailySilver().read_from_disk().select(["symbol", "timeframe"]).unique()
     )
     stocks_pairs = lf.select(["symbol", "timeframe"]).unique()
 
