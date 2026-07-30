@@ -10,7 +10,7 @@ from etl.transformation.quality_checks import not_empty, not_null, unique
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.good_symbols import GoodSymbolsSilver
 
-FIRST_DATE = date(2020, 1, 1)
+FIRST_DATE = date(2000, 1, 1)
 FINAL_DATE = date(2026, 1, 1)
 # TODO: properly discuss what values to set here
 TIME_WINDOW_MONTHS = 12
