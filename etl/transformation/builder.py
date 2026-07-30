@@ -53,7 +53,7 @@ def configured_models(config: Config) -> list[Model]:
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),
         SymbolEmbeddingsSilver(),
-        VisibilityGraphIndicatorsSilver(),
+        # VisibilityGraphIndicatorsSilver(),
         StocksRankingsSilver(),
         GoodSymbolsSilver(),
         StocksDailyGold(),
@@ -61,7 +61,7 @@ def configured_models(config: Config) -> list[Model]:
         StocksMlReadyGold(),
         SecIndicatorsSilver(),
         SecIndicatorsGold(),
-        VisibilityGraphIndicatorsGold(),
+        # VisibilityGraphIndicatorsGold(),
     ]
 
     def matches_any(m: Model, selection: list[str]):
