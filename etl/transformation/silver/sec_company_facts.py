@@ -158,7 +158,7 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
             .collect()
         )
         prices = (
-            CandlesDailySilver("")
+            CandlesDailySilver()
             .read_from_disk()
             .select(["timeframe", "symbol", "open"])
             .rename({"timeframe": "public_float_end", "symbol": "ticker"})
