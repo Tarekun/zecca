@@ -49,6 +49,7 @@ def configured_models(config: Config) -> list[Model]:
     models = [
         CompanyTickersSilver(),
         CandlesDailySilver(),
+        FamaFrench5Silver(),
         SecCompanyFactsSilver(),
         SecCompanyFactsPaddedSilver(),
         StocksDailySilver(),

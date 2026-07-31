@@ -6,4 +6,5 @@ backup: True
 skip:
   - silver.sec_indicators
   - silver.visibility_graph_indicators
+  - silver.fama_french_5
   - gold.sec_indicators
