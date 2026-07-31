@@ -57,6 +57,7 @@ def configured_models(config: Config) -> list[Model]:
         # VisibilityGraphIndicatorsSilver(),
         StocksRankingsSilver(),
         GoodSymbolsSilver(),
+        FactorLoadingsSilver(),
         StocksDailyGold(),
         Sp500ApproximatedGold(),
         StocksMlReadyGold(),
