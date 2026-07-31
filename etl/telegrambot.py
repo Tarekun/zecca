@@ -13,6 +13,17 @@ logger = get_logger(__name__)
 ANIMATION_EXTENSIONS = {".gif"}
 PHOTO_EXTENSIONS = {".jpeg", ".jpg", ".png", ".webp"}
 
+# Telegram hard limits: 4096 chars for a plain text message
+TEXT_MESSAGE_LIMIT = 4096
+# 1024 for a caption attached to media (photo/animation/document)
+CAPTION_LIMIT = 1024
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
 
 def _send_random_media(dir_path: str, messages: dict[str, str], text_suffix: str = ""):
     filename = random.choice(list(messages.keys()))
@@ -54,16 +65,17 @@ def send_message_to_group(text: str, media_path: Optional[str] = None):
             raise ValueError("Error: CHAT_ID env variable does not exist")
 
         if media_path is None:
-            bot.send_message(GROUP_CHAT_ID, text)
+            bot.send_message(GROUP_CHAT_ID, _truncate(text, TEXT_MESSAGE_LIMIT))
         else:
+            caption = _truncate(text, CAPTION_LIMIT)
             extension = os.path.splitext(media_path)[1].lower()
             with open(media_path, "rb") as media_file:
                 if extension in ANIMATION_EXTENSIONS:
-                    bot.send_animation(GROUP_CHAT_ID, media_file, caption=text)
+                    bot.send_animation(GROUP_CHAT_ID, media_file, caption=caption)
                 elif extension in PHOTO_EXTENSIONS:
-                    bot.send_photo(GROUP_CHAT_ID, media_file, caption=text)
+                    bot.send_photo(GROUP_CHAT_ID, media_file, caption=caption)
                 else:
-                    bot.send_document(GROUP_CHAT_ID, media_file, caption=text)
+                    bot.send_document(GROUP_CHAT_ID, media_file, caption=caption)
         logger.info("Telegram message sent")
     except Exception as e:
         logger.error("Could not send Telegram message: %s", e)
