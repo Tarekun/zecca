@@ -32,14 +32,13 @@ def select_ticker(
     return run_custom_query(query)
 
 
+# TODO: this needs to be deprecated
 def read_tickers(base_dir: str) -> pd.DataFrame:
     file_path = f"{base_dir}/company_tickers.parquet"
-    return run_custom_query(
-        f"""
+    return run_custom_query(f"""
         SELECT *
         FROM read_parquet('{file_path}')
-    """
-    )
+    """)
 
 
 def run_custom_query(query: str):
