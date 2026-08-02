@@ -1,3 +1,4 @@
+from datetime import timedelta
 import polars as pl
 from typing import Callable
 
@@ -6,9 +7,36 @@ from etl.transformation.gold import StocksDailyGold
 from etl.transformation.silver import GoodSymbolsSilver, SymbolEmbeddingsSilver
 from etl.transformation.silver.symbol_embeddings import DEFAULT_EMBEDDING_SIZE
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import list_length, not_empty, not_null, unique
+from etl.transformation.quality_checks import (
+    comparison,
+    in_range,
+    is_finite,
+    list_length,
+    not_empty,
+    not_null,
+    unique,
+    freshness,
+)
 
 logger = get_logger(__name__)
+
+OHCLV_COLUMNS = ["open", "high", "close", "low", "volume"]
+RSI_COLUMNS = ["rsi", "rsi_1d", "rsi_1w", "rsi_1m", "rsi_1q", "rsi_6m", "rsi_1y"]
+NUMERICAL_COLUMNS = [
+    *OHCLV_COLUMNS,
+    *RSI_COLUMNS,
+    "log_return_1d",
+    "return_1w",
+    "sharpe_1m",
+    "volatility_1y",
+    "shares_outstanding",
+    "estimated_float_shares",
+    "earnings",
+    "evaluation",
+    "price_to_earnings",
+    "float_adjusted_market_cap",
+    "earnings_per_share",
+]
 
 
 Labeling = Callable[[pl.LazyFrame], pl.LazyFrame]
@@ -35,8 +63,13 @@ class StocksMlReadyGold(Model):
             partitioning_columns=["year", "month"],
             quality_checks=[
                 not_empty(),
-                not_null(["timeframe", "symbol", "embedding"]),
+                not_null(["timeframe", "symbol", "embedding", *NUMERICAL_COLUMNS]),
+                is_finite(NUMERICAL_COLUMNS),
                 unique(["timeframe", "symbol"]),
+                comparison("low", "<=", "high"),
+                *[comparison(c, ">=", pl.lit(0)) for c in OHCLV_COLUMNS],
+                *[in_range(c, 0, 100) for c in RSI_COLUMNS],
+                freshness("timeframe", timedelta(days=3)),
                 list_length("embedding", DEFAULT_EMBEDDING_SIZE),
                 test_symbols_are_restricted_to_good_symbols,
             ],

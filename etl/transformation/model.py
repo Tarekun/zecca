@@ -89,7 +89,7 @@ class Model(ABC):
             check_name = getattr(check, "__name__", repr(check))
             logger.info(f"Running test {check_name} for model {self.id}")
             try:
-                result = check(self._lf)
+                result = check(self._lf)  # type: ignore
                 violations: pl.DataFrame = (
                     result.collect()  # type: ignore you gotta be fucking kidding me
                     if isinstance(result, pl.LazyFrame)
@@ -108,7 +108,17 @@ class Model(ABC):
                 )
                 output_dir.mkdir(parents=True, exist_ok=True)
                 csv_path = output_dir / f"{check_name}.csv"
-                violations.write_csv(csv_path)
+                nested_columns = [
+                    name
+                    for name, dtype in violations.schema.items()
+                    if dtype.base_type() in (pl.List, pl.Array, pl.Struct)
+                ]
+                if nested_columns:
+                    logger.warning(
+                        f"{check_name}: dropping nested column(s) "
+                        f"{nested_columns} before writing violations CSV"
+                    )
+                violations.drop(nested_columns).write_csv(csv_path)
                 failures.append(
                     f"{check_name} found {violations.height} violating row(s), "
                     f"written to {csv_path}"
