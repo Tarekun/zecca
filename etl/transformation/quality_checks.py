@@ -100,13 +100,16 @@ def rejected_values(column: str, values: list) -> DataQualityCheck:
     return check
 
 
-def column_comparison(
-    column_a: str,
+def comparison(
+    column_a: str | pl.Expr,
     op: Literal["<", "<=", ">", ">=", "==", "!="],
-    column_b: str,
+    column_b: str | pl.Expr,
 ) -> DataQualityCheck:
     """Builds a check that fails on any row where `column_a <op> column_b`
-    does not hold, e.g. `column_comparison("low", "<=", "high")`.
+    does not hold.
+
+    `column_a`/`column_b` may each be a column name or any polars expression,
+    so bounds checks like `comparison("open", ">=", 0)` work too.
 
     `op` is one of "<", "<=", ">", ">=", "==", "!="."""
 
@@ -119,11 +122,29 @@ def column_comparison(
         "!=": (operator.ne, "ne"),
     }
     compare, op_name = COMPARISON_OPS[op]
+    expr_a = pl.col(column_a) if isinstance(column_a, str) else column_a
+    expr_b = pl.col(column_b) if isinstance(column_b, str) else column_b
 
     def check(lf: pl.LazyFrame) -> pl.LazyFrame:
-        return lf.filter(~compare(pl.col(column_a), pl.col(column_b)))
+        return lf.filter(~compare(expr_a, expr_b))
 
-    check.__name__ = f"column_comparison_{column_a}_{op_name}_{column_b}"
+    check.__name__ = f"comparison_{column_a}_{op_name}_{column_b}"
+    return check
+
+
+def column_comparison(
+    column_a: str,
+    op: Literal["<", "<=", ">", ">=", "==", "!="],
+    column_b: str,
+) -> DataQualityCheck:
+    """Builds a check that fails on any row where `column_a <op> column_b`
+    does not hold, e.g. `column_comparison("low", "<=", "high")`.
+
+    `op` is one of "<", "<=", ">", ">=", "==", "!=".
+
+    Simple wrapper around `comparison` for the common column-vs-column case."""
+    check = comparison(column_a, op, column_b)
+    check.__name__ = check.__name__.replace("comparison_", "column_comparison_", 1)
     return check
 
 
