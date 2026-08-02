@@ -1,8 +1,10 @@
+import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-import polars as pl
-from typing import Any
+from typing import Any, Literal
 
+import polars as pl
+import yaml
 
 from etl.logger import get_logger
 from etl.utils import upsert_df
@@ -84,9 +86,9 @@ class TableSource(Source):
         key_columns: list[str],
         partitioning_columns: list[str] = [],
         layer: str = "raw",
-        dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
+        **kwargs,
     ) -> None:
-        super().__init__(name, layer, dataplatform_root)
+        super().__init__(name, layer, **kwargs)
         self.key_columns = key_columns
         self.partitioning_columns = partitioning_columns
 
@@ -97,7 +99,7 @@ class TableSource(Source):
         upsert_df(
             data,
             self.name,
-            self.dataplatform_root,
+            str(Path(self.dataplatform_root) / self.layer),
             self.key_columns,
             self.partitioning_columns or None,
         )
@@ -124,3 +126,55 @@ class TableSource(Source):
         scanning multiple parquet files as one glob, so mismatched files
         must be normalized individually first. Default is a no-op."""
         return lf
+
+
+class DictSource(Source):
+    """A Source whose data is JSON-serializable (a dict or list), stored on
+    disk as one file per "item".
+
+    A single-item source (the default behavior of `_persist`/
+    `read_from_disk`) keeps one file for its whole payload, named after the
+    source itself and living directly under the layer directory (e.g.
+    `raw/company_tickers.json`, one array covering every ticker).
+
+    A collection source keeps one file per item inside a directory named
+    after the source (e.g. `raw/sec/CIK0000320193.json`, one file per
+    company); such a source overrides `_persist`/`read_from_disk` and uses
+    `item()`/`items()` to access individual entries instead.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        layer: str = "raw",
+        format: Literal["json", "yaml"] = "json",
+        **kwargs,
+    ) -> None:
+        super().__init__(name, layer, **kwargs)
+        self.format = format
+
+    def _persist(self, data: Any) -> None:
+        # TODO support items splitting somehow
+        root = Path(self.dataplatform_root) / self.layer / self.name
+        root.mkdir(parents=True, exist_ok=True)
+
+        with open(root / f"{self.name}.{self.format}", "w") as f:
+            if self.format == "yaml":
+                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            else:
+                json.dump(data, f)
+
+    def read_item(self, key: str) -> Any:
+        with open(key) as f:
+            return yaml.safe_load(f) if self.format == "yaml" else json.load(f)
+
+    def read_from_disk(self) -> Any:
+        print(self.items())
+        return [self.read_item(item) for item in self.items()]
+
+    def items(self) -> list[str]:
+        """Keys of every item currently stored under this collection
+        source."""
+        if not self._root_dir.exists():
+            return []
+        return sorted(str(p) for p in self._root_dir.glob(f"*.{self.format}"))

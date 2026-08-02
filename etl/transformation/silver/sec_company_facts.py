@@ -4,6 +4,7 @@ from pathlib import Path
 import polars as pl
 
 from etl.logger import get_logger
+from etl.ingestion.sec import SecCompanyFacts
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.quality_checks import (
     accepted_values,
@@ -111,12 +112,12 @@ def _earnings_rows(gaap: dict) -> list[dict]:
     ]
 
 
-def _cik_from_filename(file_path: Path) -> int | None:
-    digits = file_path.stem.removeprefix("CIK").lstrip("0")
+def _cik_from_filename(file_path: str) -> int | None:
+    digits = Path(file_path).stem.removeprefix("CIK").lstrip("0")
     return int(digits) if digits else None
 
 
-def _extract_rows_from_file(file_path: Path) -> pl.DataFrame:
+def _extract_rows_from_dict(data: dict, file_path: str) -> pl.DataFrame:
     """Extracts all EntityCommonStockSharesOutstanding, EntityPublicFloat, and
     annual NetIncomeLoss rows from one SEC JSON file into a DataFrame following
     _SCHEMA.
@@ -125,7 +126,6 @@ def _extract_rows_from_file(file_path: Path) -> pl.DataFrame:
     file has none of the three facts, the row has only
     cik/entity_name/source_file set."""
 
-    data = json.loads(file_path.read_bytes())
     dei = data.get("facts", {}).get("dei", {})
     gaap = data.get("facts", {}).get("us-gaap", {})
     facts = (
@@ -135,7 +135,7 @@ def _extract_rows_from_file(file_path: Path) -> pl.DataFrame:
     common = {
         "cik": data.get("cik") or _cik_from_filename(file_path),
         "entity_name": data.get("entityName"),
-        "source_file": file_path.name,
+        "source_file": Path(file_path).stem,
     }
     rows = [{**common, **row} for row in facts] or [common]
 
@@ -215,8 +215,15 @@ def compute_from_source(sec_data_path: Path) -> pl.DataFrame:
         - ``earnings``                 – annual NetIncomeLoss value in USD
     """
 
-    json_files = sorted(sec_data_path.glob("*.json"))
-    df = pl.concat([_extract_rows_from_file(f) for f in json_files]).with_columns(
+    # json_files = sorted(sec_data_path.glob("*.json"))
+    source = SecCompanyFacts()
+    rows = []
+    for item in source.items():
+        data = source.read_item(item)
+        df = _extract_rows_from_dict(data, item)
+        rows.append(df)
+
+    df = pl.concat(rows).with_columns(
         [pl.col(c).str.to_date(format="%Y-%m-%d", strict=False) for c in _DATE_COLUMNS]
     )
     return _enrich_with_float_price(df)

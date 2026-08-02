@@ -7,7 +7,7 @@ from time import sleep
 from typing import Literal
 import yfinance as yf
 
-from analysis.db.queries import read_tickers
+from etl.ingestion.sec import SecTickers
 from etl.ingestion.source import TableSource, DEFAULT_DATAPLATFORM_ROOT
 from etl.logger import get_logger
 
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 _RAW_COLS = ["date", "ticker", "open", "close", "high", "low", "volume"]
 
 
-class YFinanceTickerSource(TableSource):
+class YFinanceTicker(TableSource):
     """OHLCV candles for a batch of tickers, pulled from yfinance at a fixed
     `interval` ("1d" or "1h") and upserted into an on-disk, year/month
     hive-partitioned parquet store keyed by (date, ticker)."""
@@ -35,13 +35,8 @@ class YFinanceTickerSource(TableSource):
         self.interval = interval
 
     def load(self, **kwargs) -> pl.DataFrame:
-        ticker_names = (
-            read_tickers(self.dataplatform_root)["ticker"]
-            .dropna()
-            .astype(str)
-            .unique()
-            .tolist()
-        )
+        tickers = SecTickers(dataplatform_root=self.dataplatform_root).read_from_disk()[0]
+        ticker_names = sorted({entry["ticker"] for entry in tickers.values() if entry.get("ticker")})
         total = len(ticker_names)
         batch_size = 100 if self.incremental else 50
         num_batches = math.ceil(total / batch_size)
@@ -84,7 +79,10 @@ class YFinanceTickerSource(TableSource):
                 )
 
                 df = yf.download(
-                    batch, interval=self.interval, period=period, start=start
+                    batch,
+                    interval=self.interval,
+                    period=period,  # type: ignore
+                    start=start,
                 )
                 if df is not None and not df.empty:
                     df = _flatten_yf(df)

@@ -18,7 +18,7 @@ from etl.transformation.quality_checks import (
     freshness,
     in_range,
 )
-from etl.ingestion.yfinance import YFinanceTickerSource
+from etl.ingestion.yfinance import YFinanceTicker
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 # Lookback periods in trading days, matching candles_enhanced([1, 5, 14, 20, 30, 62, 126, 252])
@@ -49,9 +49,7 @@ def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
         - RSI (14-step): ``rsi``, ``overbought``, ``oversold``
         - RSI (other periods): ``rsi_1d/1w/1m/30_steps/1q/6m/1y``
     """
-    df = YFinanceTickerSource(
-        "1d", dataplatform_root=dataplatform_root
-    ).read_from_disk()
+    df = YFinanceTicker("1d", dataplatform_root=dataplatform_root).read_from_disk()
 
     df = (
         df.rename({"ticker": "symbol"})
