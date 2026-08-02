@@ -4,7 +4,7 @@ from pathlib import Path
 import polars as pl
 
 sys.path.append(str(Path(__file__).parents[2]))
-from etl.ingestion.yfinance import upsert_df
+from etl.utils import upsert_df
 
 
 def test_upsert_df_inserts_when_no_existing_data(tmp_path):

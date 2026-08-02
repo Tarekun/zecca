@@ -5,10 +5,10 @@ import polars as pl
 import pytest
 
 sys.path.append(str(Path(__file__).parents[3]))
-from etl.transformation.utils import load_ticker_daily
+from etl.ingestion.yfinance import YFinanceTicker
 
-_RAW_ROOT = Path(__file__).parents[3] / "dataplatform" / "raw"
-_TEST_OUTPUTS = Path(__file__).parents[3] / "dataplatform" / "test_outputs"
+_DATAPLATFORM_ROOT = Path(__file__).parents[3] / "dataplatform"
+_TEST_OUTPUTS = _DATAPLATFORM_ROOT / "test_outputs"
 
 _PRICE_COLS = ["open", "close", "high", "low"]
 
@@ -19,7 +19,11 @@ def test_symbol_appears_on_all_dates_after_first():
     Builds the full expected (ticker, date) universe — all dates >= each symbol's first
     appearance — then asserts no pair is missing from the actual data.
     """
-    df = load_ticker_daily(_RAW_ROOT)
+    df = (
+        YFinanceTicker("1d", dataplatform_root=str(_DATAPLATFORM_ROOT))
+        .read_from_disk()
+        .collect()
+    )
 
     all_dates = df.select("date").unique()
 
@@ -60,7 +64,11 @@ def test_no_negative_prices():
     Writes a CSV of every offending row (ticker, date, open, close, high, low)
     sorted by ticker then date so gaps are easy to inspect.
     """
-    df = load_ticker_daily(_RAW_ROOT)
+    df = (
+        YFinanceTicker("1d", dataplatform_root=str(_DATAPLATFORM_ROOT))
+        .read_from_disk()
+        .collect()
+    )
 
     negative_mask = pl.lit(False)
     for col in _PRICE_COLS:
