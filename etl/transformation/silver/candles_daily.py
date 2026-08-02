@@ -18,14 +18,14 @@ from etl.transformation.quality_checks import (
     freshness,
     in_range,
 )
-from etl.transformation.utils import load_ticker_daily
+from etl.ingestion.yfinance import YFinanceTickerSource
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 
 # Lookback periods in trading days, matching candles_enhanced([1, 5, 14, 20, 30, 62, 126, 252])
 _LOOKBACKS = [1, 5, 14, 20, 30, 62, 126, 252]
 
 
-def compute_from_source(yfinance_data_path: Path) -> pl.LazyFrame:
+def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
     """Read ticker_daily parquet data and compute the full candles_daily indicator set.
 
     Replicates the logic of the dbt model ``silver/candles_daily.sql`` and its
@@ -49,7 +49,9 @@ def compute_from_source(yfinance_data_path: Path) -> pl.LazyFrame:
         - RSI (14-step): ``rsi``, ``overbought``, ``oversold``
         - RSI (other periods): ``rsi_1d/1w/1m/30_steps/1q/6m/1y``
     """
-    df = load_ticker_daily(yfinance_data_path)
+    df = YFinanceTickerSource(
+        "1d", dataplatform_root=dataplatform_root
+    ).read_from_disk()
 
     df = (
         df.rename({"ticker": "symbol"})
@@ -222,4 +224,4 @@ class CandlesDailySilver(Model):
         )
 
     def _build(self) -> pl.LazyFrame:
-        return compute_from_source(Path(self.dataplatform_root) / "raw")
+        return compute_from_source(self.dataplatform_root)

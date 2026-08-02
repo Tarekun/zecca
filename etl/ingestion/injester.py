@@ -1,14 +1,23 @@
 from etl.config import Config
 from etl.ingestion.sec import *
-from etl.ingestion.yfinance import *
+from etl.ingestion.yfinance import YFinanceTickerSource
+from etl.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def injester_maxx(config: Config):
     # yahoo finance
-    logger.info("Starting ticker daily ingestion...")
-    ingest_ticker_daily(base_dir=config.ingestion_dir, incremental=config.incremental)
-    logger.info("Starting ticker hourly ingestion...")
-    ingest_ticker_hourly(base_dir=config.ingestion_dir, incremental=config.incremental)
+    YFinanceTickerSource(
+        "1d",
+        dataplatform_root=config.ingestion_dir,
+        incremental=config.incremental,
+    ).ingest()
+    YFinanceTickerSource(
+        "1h",
+        dataplatform_root=config.ingestion_dir,
+        incremental=config.incremental,
+    ).ingest()
 
     # SEC filings
     logger.info("Downloading SEC company tickers...")
