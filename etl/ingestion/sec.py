@@ -4,7 +4,7 @@ import zipfile
 
 import requests
 
-from etl.ingestion.source import DEFAULT_DATAPLATFORM_ROOT, DictSource
+from etl.ingestion.source import DEFAULT_DATAPLATFORM_ROOT, DictLike
 from etl.logger import get_logger
 
 logger = get_logger(__name__)
@@ -60,7 +60,7 @@ def download_and_unzip(url: str, dest_path: str, user_agent: str) -> None:
     logger.info(f"Extraction completed: {dest_path}")
 
 
-class SecTickers(DictSource):
+class SecTickers(DictLike):
     """The SEC's CIK/ticker/company-name mapping: a single JSON file
     (`company_tickers.json`) covering every registrant."""
 
@@ -76,7 +76,7 @@ class SecTickers(DictSource):
         return r.json()
 
 
-class SecCompanyFacts(DictSource):
+class SecCompanyFacts(DictLike):
     """SEC XBRL "company facts" for every registrant, one JSON file per CIK,
     extracted from the SEC's bulk `companyfacts.zip` download -- a
     collection source, indexed by CIK (e.g. `sec["CIK0000320193"]`)."""
@@ -88,7 +88,7 @@ class SecCompanyFacts(DictSource):
 
     def load(self, **kwargs) -> None:
         """Downloads and extracts the zip directly into this source's
-        directory -- unlike the generic DictSource case, the per-CIK files
+        directory -- unlike the generic DictLike case, the per-CIK files
         are written as a side effect of the download itself rather than
         held in memory as one big payload, so `_persist()` is a no-op."""
         download_and_unzip(self._URL, str(self._root_dir), USER_AGENT)

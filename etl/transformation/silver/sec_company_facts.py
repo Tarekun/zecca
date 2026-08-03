@@ -135,7 +135,7 @@ def _extract_rows_from_dict(data: dict, file_path: str) -> pl.DataFrame:
     common = {
         "cik": data.get("cik") or _cik_from_filename(file_path),
         "entity_name": data.get("entityName"),
-        "source_file": Path(file_path).stem,
+        "source_file": Path(file_path).name,
     }
     rows = [{**common, **row} for row in facts] or [common]
 
@@ -215,7 +215,6 @@ def compute_from_source(sec_data_path: Path) -> pl.DataFrame:
         - ``earnings``                 – annual NetIncomeLoss value in USD
     """
 
-    # json_files = sorted(sec_data_path.glob("*.json"))
     source = SecCompanyFacts()
     rows = []
     for item in source.items():

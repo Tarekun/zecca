@@ -45,10 +45,6 @@ class Source(ABC):
     def _root_dir(self) -> Path:
         return Path(self.dataplatform_root) / self.layer / self.name
 
-    def exists(self) -> bool:
-        """Whether anything has ever been persisted for this source."""
-        return self._root_dir.exists()
-
     @abstractmethod
     def load(self, **kwargs) -> Any:
         """Fetches fresh data from the external source and returns it. Must
@@ -75,7 +71,7 @@ class Source(ABC):
         return data
 
 
-class TableSource(Source):
+class TableLike(Source):
     """A Source whose data is row/columnar (e.g. OHLCV candles): `load()`
     returns a DataFrame that `ingest()` merges into an on-disk, optionally
     hive-partitioned, parquet store keyed by `key_columns`."""
@@ -128,7 +124,7 @@ class TableSource(Source):
         return lf
 
 
-class DictSource(Source):
+class DictLike(Source):
     """A Source whose data is JSON-serializable (a dict or list), stored on
     disk as one file per "item".
 
