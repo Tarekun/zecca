@@ -5,14 +5,18 @@ import polars as pl
 import pytest
 
 sys.path.append(str(Path(__file__).parents[2]))
-from etl.transformation.utils import load_ticker_daily
+from etl.ingestion.yfinance import YFinanceTicker
 
-# Root of the yfinance data store — parent of ticker_daily/
-_RAW_ROOT = Path(__file__).parents[2] / "dataplatform" / "raw"
+# Platform root — parent of raw/ticker_daily/
+_DATAPLATFORM_ROOT = Path(__file__).parents[2] / "dataplatform"
 
 
 def test_compute_candles_daily_nonempty():
-    result = load_ticker_daily(_RAW_ROOT).collect()
+    result = (
+        YFinanceTicker("1d", dataplatform_root=str(_DATAPLATFORM_ROOT))
+        .read_from_disk()
+        .collect()
+    )
 
     assert result.height > 0, (
         "compute_candles_daily returned an empty DataFrame — "

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import polars as pl
 
+from etl.ingestion.sec import SecTickers
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 from etl.transformation.quality_checks import matches_regex, not_empty, not_null, unique
 
@@ -23,9 +24,7 @@ def compute_from_source(raw_data_path: Path) -> pl.LazyFrame:
         - ``title``   – company name
     """
 
-    file_path = raw_data_path / "company_tickers.json"
-
-    data = json.loads(file_path.read_bytes())
+    data = SecTickers().read_from_disk()[0]
     rows = [
         {
             "cik_str": entry.get("cik_str"),
