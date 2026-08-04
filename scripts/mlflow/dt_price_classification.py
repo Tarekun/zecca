@@ -1,10 +1,12 @@
-import argparse
 import sys
+
+sys.path.append("../..")  # script run from scripts/mlflow
+sys.path.append(".")  # script run from root
+
+import argparse
 from datetime import date, timedelta
 import itertools
 import polars as pl
-
-sys.path.append("../..")
 
 from analysis.models.common import run_search
 from analysis.models.dt_price_classifier import train_decision_tree, DecisionTreeConfig
@@ -12,7 +14,7 @@ from etl.transformation.gold import StocksMlReadyGold
 from etl.transformation.gold.stocks_ml_ready import append_future_returns
 
 # execution parameters
-DATAPLATFORM_ROOT = "../../dataplatform"
+DATAPLATFORM_ROOT = "dataplatform"
 LOOKAHEAD_STEPS = 5
 THRESHOLDS = [0.01, 0.03]
 LABELS = ["more_3_loss", "1_to_3_loss", "stagnant", "1_to_3_gain", "more_3_gain"]
@@ -115,25 +117,19 @@ def parse_args():
         return [build_class_weight(kind, LABELS) for kind in raw.split(",")]
 
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--start-date", type=date.fromisoformat, default=date(2005, 1, 1)
-    )
-    parser.add_argument("--end-date", type=date.fromisoformat, default=date(2025, 1, 1))
-    parser.add_argument(
-        "--criterion", type=csv(str), default=["gini", "entropy", "log_loss"]
-    )
-    parser.add_argument("--splitter", type=csv(str), default=["best", "random"])
-    parser.add_argument("--max-depth", type=optional_csv(int), default=[10, 20, 40])
-    parser.add_argument("--min-samples-split", type=csv(int), default=[2, 20, 200])
-    parser.add_argument(
-        "--max-features", type=optional_csv(str), default=[None, "sqrt", "log2"]
-    )
-    parser.add_argument("--ccp-alpha", type=csv(float), default=[0.0, 0.01, 0.1])
-    parser.add_argument(
-        "--class-weight",
-        type=class_weight_csv,
-        default=[None, build_class_weight("weight-top", LABELS)],
-    )
+    parser.add_argument("--start-date", type=date.fromisoformat)
+    parser.add_argument("--end-date", type=date.fromisoformat)
+    # "gini", "entropy", "log_loss"
+    parser.add_argument("--criterion", type=csv(str), default=["gini"])
+    # "best", "random"
+    parser.add_argument("--splitter", type=csv(str), default=["best"])
+    parser.add_argument("--max-depth", type=optional_csv(int), default=[None])
+    parser.add_argument("--min-samples-split", type=csv(int), default=[2])
+    # None, "sqrt", "log2"
+    parser.add_argument("--max-features", type=optional_csv(str), default=[None])
+    parser.add_argument("--ccp-alpha", type=csv(float), default=[0.0])
+    # None, "balanced", "weight-top", "weight-bottom"
+    parser.add_argument("--class-weight", type=class_weight_csv, default=[None])
 
     return parser.parse_args()
 
@@ -180,5 +176,9 @@ results = run_search(
     X_test=xtest.to_numpy(),
     y_test=ytest.to_numpy(),
     base_config=DecisionTreeConfig(),
-    extra_params={"feature_list": FEATURE_LIST},
+    extra_params={
+        "feature_list": FEATURE_LIST,
+        "start_date": args.start_date,
+        "end_date": args.end_date,
+    },
 )
