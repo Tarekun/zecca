@@ -1,12 +1,14 @@
 import dataclasses
 from dataclasses import dataclass
 import numpy as np
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.tree import DecisionTreeClassifier
 from typing import Any
 
 from analysis.mlflow_utils import ExperimentLogger, mlflow_experiment
 from analysis.models.common import (
     TrainingResult,
+    per_class,
     run_search,
     train_sklearn_model,
 )
@@ -40,4 +42,12 @@ def train_decision_tree(
     logger: ExperimentLogger | None = None,
 ) -> tuple[TrainingResult, DecisionTreeClassifier]:
     model = DecisionTreeClassifier(**dataclasses.asdict(config))
-    return train_sklearn_model(model, X_train, y_train, X_val, y_val, logger)
+    metrics = {
+        "accuracy": accuracy_score,
+        "precision": precision_score,
+        "recall": recall_score,
+        "f1": lambda y_true, y_pred: f1_score(y_true, y_pred, average="macro"),
+        "precision_per_class": per_class(precision_score),
+        "recall_per_class": per_class(recall_score),
+    }
+    return train_sklearn_model(model, X_train, y_train, X_val, y_val, logger, metrics)
