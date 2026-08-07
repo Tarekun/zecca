@@ -1,5 +1,7 @@
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.company_tickers import CompanyTickersSilver
+from etl.transformation.silver.fama_french_5 import FamaFrench5Silver
+from etl.transformation.silver.factor_loadings import FactorLoadingsSilver
 from etl.transformation.silver.good_symbols import GoodSymbolsSilver
 from etl.transformation.silver.sec_company_facts import SecCompanyFactsSilver
 from etl.transformation.silver.sec_company_facts_padded import (
@@ -17,6 +19,8 @@ from etl.transformation.silver.symbol_embeddings import SymbolEmbeddingsSilver
 __all__ = [
     "CandlesDailySilver",
     "CompanyTickersSilver",
+    "FamaFrench5Silver",
+    "FactorLoadingsSilver",
     "GoodSymbolsSilver",
     "SecCompanyFactsSilver",
     "SecCompanyFactsPaddedSilver",
