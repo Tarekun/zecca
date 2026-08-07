@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from etl.config import Config
+from etl.ingestion.french_library import FrenchLibrary
 from etl.ingestion.sec import SecCompanyFacts, SecTickers
 from etl.ingestion.yfinance import YFinanceTicker
 
@@ -26,3 +27,7 @@ def injester_maxx(config: Config):
         dataplatform_root=dataplatform_root,
         incremental=config.incremental,
     ).ingest()
+
+    # Fama-French factors
+    # for region in ["north_america", "europe", "japan", "asia_pacific_ex_japan"]:
+    #     FrenchLibrary(region, dataplatform_root=dataplatform_root).ingest()  # type: ignore

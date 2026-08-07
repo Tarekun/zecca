@@ -42,7 +42,7 @@ class Source(ABC):
         return f"{self.layer}.{self.name}"
 
     @property
-    def _root_dir(self) -> Path:
+    def root_dir(self) -> Path:
         return Path(self.dataplatform_root) / self.layer / self.name
 
     @abstractmethod
@@ -82,11 +82,13 @@ class TableLike(Source):
         key_columns: list[str],
         partitioning_columns: list[str] = [],
         layer: str = "raw",
+        format: Literal["parquet", "csv"] = "parquet",
         **kwargs,
     ) -> None:
         super().__init__(name, layer, **kwargs)
         self.key_columns = key_columns
         self.partitioning_columns = partitioning_columns
+        self.format = format
 
     def _persist(self, data: pl.DataFrame) -> None:
         if data.is_empty():
@@ -102,16 +104,19 @@ class TableLike(Source):
 
     def read_from_disk(self) -> pl.LazyFrame:
         glob_pattern = (
-            "*.parquet"
+            f"*.{self.format}"
             if not self.partitioning_columns
-            else "/".join(f"{c}=*" for c in self.partitioning_columns) + "/*.parquet"
+            else "/".join(f"{c}=*" for c in self.partitioning_columns)
+            + f"/*.{self.format}"
         )
-        files = sorted(str(p) for p in self._root_dir.glob(glob_pattern))
+        files = sorted(str(p) for p in self.root_dir.glob(glob_pattern))
+        scan = (
+            pl.scan_csv
+            if self.format == "csv"
+            else lambda f: pl.scan_parquet(f, extra_columns="ignore")
+        )
         return pl.concat(
-            [
-                self._normalize(pl.scan_parquet(f, extra_columns="ignore"))
-                for f in files
-            ],
+            [self._normalize(scan(f)) for f in files],
             how="vertical",
         )
 
@@ -171,6 +176,6 @@ class DictLike(Source):
     def items(self) -> list[str]:
         """Keys of every item currently stored under this collection
         source."""
-        if not self._root_dir.exists():
+        if not self.root_dir.exists():
             return []
-        return sorted(str(p) for p in self._root_dir.glob(f"*.{self.format}"))
+        return sorted(str(p) for p in self.root_dir.glob(f"*.{self.format}"))

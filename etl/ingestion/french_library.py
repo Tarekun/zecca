@@ -1,57 +1,61 @@
-import os
+from typing import Literal
 
-from etl.config import Config
 from etl.ingestion.sec import download_and_unzip
+from etl.ingestion.source import TableLike
 from etl.logger import get_logger
 
 logger = get_logger(__name__)
 
-USER_AGENT = "Mozilla/5.0"
+Region = Literal["north_america", "europe", "japan", "asia_pacific_ex_japan"]
 
+USER_AGENT = "Mozilla/5.0"
 LEADING_ROWS_TO_PRUNE = 6
 FRENCH_LIBRARY_BASE_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp"
+REGION_FILE_STEMS: dict[Region, str] = {
+    "north_america": "North_America",
+    "europe": "Europe",
+    "japan": "Japan",
+    "asia_pacific_ex_japan": "Asia_Pacific_ex_Japan",
+}
 
 
-def _ingest_ff5(config: Config, region_file_stem: str):
-    extracted_name = f"{region_file_stem}_5_Factors_Daily.csv"
-    url = f"{FRENCH_LIBRARY_BASE_URL}/{extracted_name.replace('.csv', '_CSV.zip')}"
+class FrenchLibrary(TableLike):
+    """Fama-French 5-factor daily returns from Ken French's data library, one
+    region per instance.
 
-    dest_dir = os.path.join(config.ingestion_dir, "french_library")
-    dest_file = os.path.join(dest_dir, extracted_name.lower())
+    The library only publishes a zipped CSV with a few descriptive header
+    rows prepended, so `load()` downloads, extracts and prunes it directly
+    into this source's directory. The CSV is
+    already where downstream models expect it once `load()` returns, so
+    `_persist()` is a no-op.
+    """
 
-    logger.info(f"Starting download and extraction of {extracted_name}...")
-    download_and_unzip(url, dest_dir, USER_AGENT)
+    def __init__(self, region: Region, **kwargs):
+        super().__init__(
+            name=f"french_library_{region}",
+            key_columns=["date"],
+            format="csv",
+            **kwargs,
+        )
+        self.region: Region = region
 
-    extracted_file = os.path.join(dest_dir, extracted_name)
-    with open(extracted_file, "r") as f:
-        lines = f.readlines()
+    def load(self, **kwargs):
+        region_file_stem = REGION_FILE_STEMS[self.region]
+        extracted_name = f"{region_file_stem}_5_Factors_Daily.csv"
+        extracted_file = self.root_dir / extracted_name
+        url = f"{FRENCH_LIBRARY_BASE_URL}/{extracted_name.replace('.csv', '_CSV.zip')}"
+        dest_file = self.root_dir / f"{region_file_stem.lower()}_5_factors_daily.csv"
 
-    with open(dest_file, "w") as f:
-        f.writelines(lines[LEADING_ROWS_TO_PRUNE:])
+        logger.info(f"Starting download and extraction of {extracted_name}...")
+        download_and_unzip(url, str(self.root_dir), USER_AGENT)
 
-    os.remove(extracted_file)
+        with open(extracted_file, "r") as f:
+            lines = f.readlines()
+        with open(dest_file, "w") as f:
+            f.writelines(lines[LEADING_ROWS_TO_PRUNE:])
+        extracted_file.unlink()
 
-    logger.info(f"Saved {extracted_name} to {dest_file}")
+        logger.info(f"Saved {extracted_name} to {dest_file}")
 
-
-def ingest_ff5_north_america(config: Config):
-    _ingest_ff5(config, "North_America")
-
-
-def ingest_ff5_europe(config: Config):
-    _ingest_ff5(config, "Europe")
-
-
-def ingest_ff5_japan(config: Config):
-    _ingest_ff5(config, "Japan")
-
-
-def ingest_ff5_asia_pacific(config: Config):
-    _ingest_ff5(config, "Asia_Pacific_ex_Japan")
-
-
-def download_ff5_factors_daily(config: Config):
-    ingest_ff5_north_america(config)
-    ingest_ff5_europe(config)
-    ingest_ff5_japan(config)
-    ingest_ff5_asia_pacific(config)
+    def _persist(self, data) -> None:
+        pass

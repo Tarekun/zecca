@@ -91,7 +91,7 @@ class SecCompanyFacts(DictLike):
         directory -- unlike the generic DictLike case, the per-CIK files
         are written as a side effect of the download itself rather than
         held in memory as one big payload, so `_persist()` is a no-op."""
-        download_and_unzip(self._URL, str(self._root_dir), USER_AGENT)
+        download_and_unzip(self._URL, str(self.root_dir), USER_AGENT)
 
     def _persist(self, data) -> None:
         pass
