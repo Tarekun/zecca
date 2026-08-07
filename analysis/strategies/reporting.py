@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 _TRADING_DAYS_PER_YEAR = 252
 
 
-def compute_metrics(history: pl.DataFrame) -> dict[str, float | None]:
+def compute_metrics(history: pl.DataFrame) -> dict[str, float]:
     """Annualized volatility/Sharpe (rf=0) plus max drawdown and its longest
     duration (days underwater since the last equity peak) from the equity curve."""
     enriched = (
@@ -35,18 +35,12 @@ def compute_metrics(history: pl.DataFrame) -> dict[str, float | None]:
     return {
         "volatility": (
             float(daily_return_std) * _TRADING_DAYS_PER_YEAR**0.5  # type: ignore
-            if daily_return_std is not None
-            else None
         ),
         "sharpe": (
             float(daily_return_mean) / float(daily_return_std) * _TRADING_DAYS_PER_YEAR**0.5  # type: ignore
-            if daily_return_mean is not None and daily_return_std
-            else None
         ),
-        "max_drawdown": float(max_drawdown) if max_drawdown is not None else None,  # type: ignore
-        "longest_drawdown_days": (
-            float(longest_drawdown_days) if longest_drawdown_days is not None else None  # type: ignore
-        ),
+        "max_drawdown": float(max_drawdown),  # type: ignore
+        "longest_drawdown_days": (float(longest_drawdown_days)),  # type: ignore
     }
 
 

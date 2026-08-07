@@ -68,7 +68,7 @@ def optimize_parameters(
         history = candidate.daily_backtest(window_df, starting_balance)
         trading_year_history = history.filter(pl.col("timeframe") >= trading_year_start)
         sharpe = compute_metrics(trading_year_history)["sharpe"]
-        if sharpe is not None and sharpe > best_sharpe:
+        if sharpe > best_sharpe:
             best_sharpe = sharpe
             best_params = params
 
