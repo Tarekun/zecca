@@ -232,13 +232,18 @@ def matches_regex(column: str, pattern: str) -> DataQualityCheck:
     return check
 
 
-def no_gaps(date_column: str, group_by: str | list[str]) -> DataQualityCheck:
+def no_gaps(
+    date_column: str, group_by: str | list[str], skip_weekends: bool = False
+) -> DataQualityCheck:
     """Builds a check that fails if `date_column` (Date-typed) has any missing
     calendar day between the min and max value observed within each
     `group_by` group, i.e. the series must be daily-continuous per group.
 
     Not suitable for data with expected calendar gaps (e.g. trading days,
-    which skip weekends/holidays) -- there, a gap isn't a quality problem."""
+    which skip weekends/holidays) -- there, a gap isn't a quality problem,
+    unless `skip_weekends` is set, which excludes Saturdays/Sundays from the
+    expected dates. That still doesn't account for market holidays, so it's
+    only an approximation for trading-day data."""
     group_by = [group_by] if isinstance(group_by, str) else list(group_by)
 
     def check(lf: pl.LazyFrame) -> pl.LazyFrame:
@@ -256,6 +261,8 @@ def no_gaps(date_column: str, group_by: str | list[str]) -> DataQualityCheck:
             .explode(date_column)
             .select([*group_by, date_column])
         )
+        if skip_weekends:
+            expected = expected.filter(pl.col(date_column).dt.weekday() <= 5)
         actual = dates_lf.unique()
         return expected.join(actual, on=[*group_by, date_column], how="anti")
 

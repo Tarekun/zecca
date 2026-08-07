@@ -2,7 +2,13 @@ from pathlib import Path
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
-from etl.transformation.quality_checks import is_finite, not_empty, not_null, unique
+from etl.transformation.quality_checks import (
+    is_finite,
+    no_gaps,
+    not_empty,
+    not_null,
+    unique,
+)
 
 FACTOR_COLUMNS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA", "RF"]
 _FILENAME_SUFFIX = "_5_factors_daily.csv"
@@ -47,6 +53,7 @@ class FamaFrench5Silver(Model):
                 unique(["region", "date"]),
                 is_finite(FACTOR_COLUMNS),
                 not_null(["date", "region", *FACTOR_COLUMNS]),
+                no_gaps("date", "region", skip_weekends=True),
             ],
             dataplatform_root=dataplatform_root,
         )
