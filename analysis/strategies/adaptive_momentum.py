@@ -10,9 +10,10 @@ from typing import cast, Literal
 
 from etl.transformation.gold import StocksMlReadyGold
 from analysis.strategies.strategy import Strategy
-from analysis.strategies.classic_momentum import ClassicMomentum
+from analysis.strategies.classic_momentum import TopNReturnsMomentum
 from analysis.strategies.reporting import compute_metrics
 from analysis.strategies.utils import period_key
+from analysis.strategies.wallet import Order
 
 # same strategy as classic_momentum, but months_lookback/weeks_ignore/top_n are
 # re-optimized at every rebalance instead of being fixed up front
@@ -29,7 +30,7 @@ def optimize_parameters(
     execution_date: date,
     param_grid: dict[str, list],
 ) -> dict:
-    """Grid-searches `param_grid`, running a full `ClassicMomentum.daily_backtest`
+    """Grid-searches `param_grid`, running a full `TopNReturnsMomentum.daily_backtest`
     over the trailing year up to (but excluding) `execution_date` for every
     combination, and returns the combination that maximized Sharpe over that
     year. Each candidate gets its own months_lookback+weeks_ignore of extra
@@ -58,7 +59,7 @@ def optimize_parameters(
         if window_df.is_empty():
             continue
 
-        candidate = ClassicMomentum(
+        candidate = TopNReturnsMomentum(
             params["months_lookback"],
             params["weeks_ignore"],
             params["top_n"],
@@ -74,8 +75,8 @@ def optimize_parameters(
     return best_params if best_params is not None else fallback
 
 
-class AdaptiveMomentum(Strategy):
-    """Same trading rules as `ClassicMomentum`, but strategy parameters
+class AdaptiveTopNReturnsMomentum(Strategy):
+    """Same trading rules as `TopNReturnsMomentum`, but strategy parameters
     are re-optimized (by trailing-year Sharpe, see `optimize_parameters`)
     at every rebalance instead of being fixed up front."""
 
@@ -87,15 +88,15 @@ class AdaptiveMomentum(Strategy):
         self.reoptimize: Literal["weekly", "monthly", "quarterly"] = reoptimize
         self.param_grid = param_grid
         self._last_period_key = None
-        self._inner: ClassicMomentum | None = None
+        self._inner: TopNReturnsMomentum | None = None
 
-    def make_decision(
+    def place_orders(
         self,
         df: pl.DataFrame,
         execution_date: date,
         liquidity: float,
         positions: dict[str, float],
-    ) -> dict[str, float]:
+    ) -> list[Order]:
         history_start = cast(date, df["timeframe"].min())
         # need a full year to optimize over, plus the grid's longest lookback
         # so the candidate being tested itself has data to rank on within that year
@@ -106,7 +107,7 @@ class AdaptiveMomentum(Strategy):
             + timedelta(weeks=max(self.param_grid["weeks_ignore"]))
         )
         if execution_date < warmup_end:
-            return positions
+            return []
 
         current_key = period_key(execution_date, self.reoptimize)
         if current_key != self._last_period_key or self._inner is None:
@@ -116,7 +117,7 @@ class AdaptiveMomentum(Strategy):
                 self.param_grid,
             )
             print(f"{execution_date}: optimized params {best_params}")
-            self._inner = ClassicMomentum(
+            self._inner = TopNReturnsMomentum(
                 best_params["months_lookback"],
                 best_params["weeks_ignore"],
                 best_params["top_n"],
@@ -124,4 +125,4 @@ class AdaptiveMomentum(Strategy):
             )
             self._last_period_key = current_key
 
-        return self._inner.make_decision(df, execution_date, liquidity, positions)
+        return self._inner.place_orders(df, execution_date, liquidity, positions)

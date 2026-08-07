@@ -3,6 +3,7 @@ import polars as pl
 from typing import Literal
 
 
+# TODO: migrate to extract 'median' column from df once its supported
 def prices_on(df: pl.DataFrame, day: date) -> dict[str, float]:
     """The median (high+low)/2 execution price for every symbol on `day`,
     used to mark and transact positions."""

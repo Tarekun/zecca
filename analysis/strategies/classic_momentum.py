@@ -1,7 +1,3 @@
-import sys
-
-sys.path.append("../..")
-
 from datetime import date, timedelta
 import polars as pl
 from dateutil.relativedelta import relativedelta
@@ -9,6 +5,7 @@ from typing import cast, Literal
 
 from analysis.strategies.strategy import Strategy
 from analysis.strategies.utils import prices_on, period_key
+from analysis.strategies.wallet import Order, BuyStock, LiquidateStock
 
 
 def top_n_on_window(
@@ -39,19 +36,20 @@ def top_n_on_window(
     return momentum.head(top_n)["symbol"].to_list()
 
 
-def equal_weight_positions(
+def equal_weight_buy_orders(
     symbols: list[str], prices: dict[str, float], total_value: float
-) -> dict[str, float]:
-    """Splits `total_value` evenly across whichever of `symbols` have a price
-    today, converting each share into a quantity at that day's price."""
+) -> list[Order]:
+    """Splits `total_value` evenly into a `BuyStock` order per symbol among
+    whichever of `symbols` have a price today."""
+
     buyable = [symbol for symbol in symbols if symbol in prices]
     if not buyable:
-        return {}
+        return []
     allocation = total_value / len(buyable)
-    return {symbol: allocation / prices[symbol] for symbol in buyable}
+    return [BuyStock(symbol, prices[symbol], allocation) for symbol in buyable]
 
 
-class ClassicMomentum(Strategy):
+class TopNReturnsMomentum(Strategy):
     """Rebalances into the top `top_n` momentum symbols (`make_choice`) on the
     first trading day of every `rebalance` period, equal-weighting the
     portfolio's full value across them. Does nothing in between, and does
@@ -71,13 +69,13 @@ class ClassicMomentum(Strategy):
         self.rebalance: Literal["weekly", "monthly", "quarterly"] = rebalance
         self._last_period_key = None
 
-    def make_decision(
+    def place_orders(
         self,
         df: pl.DataFrame,
         execution_date: date,
         liquidity: float,
         positions: dict[str, float],
-    ) -> dict[str, float]:
+    ) -> list[Order]:
         history_start: date = cast(date, df["timeframe"].min())
         warmup_end = (
             history_start
@@ -86,12 +84,12 @@ class ClassicMomentum(Strategy):
         )
         # avoid trading if there isnt a full self.months_lookback+self.weeks_ignore of time from execution_date
         if execution_date < warmup_end:
-            return positions
+            return []
 
         current_key = period_key(execution_date, self.rebalance)
         # only trade on the configured self.rebalance
         if current_key == self._last_period_key:
-            return positions
+            return []
         self._last_period_key = current_key
 
         chosen = top_n_on_window(
@@ -101,4 +99,9 @@ class ClassicMomentum(Strategy):
         total_value = liquidity + sum(
             shares * prices.get(symbol, 0.0) for symbol, shares in positions.items()
         )
-        return equal_weight_positions(chosen, prices, total_value)
+
+        liquidations: list[Order] = [
+            LiquidateStock(symbol, prices.get(symbol, 0.0)) for symbol in positions
+        ]
+        purchases = equal_weight_buy_orders(chosen, prices, total_value)
+        return liquidations + purchases
