@@ -1,7 +1,7 @@
 from typing import Literal
 
-from etl.ingestion.sec import download_and_unzip
 from etl.ingestion.source import TableLike
+from etl.ingestion.utils import download_and_unzip
 from etl.logger import get_logger
 
 logger = get_logger(__name__)
