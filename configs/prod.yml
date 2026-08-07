@@ -7,4 +7,5 @@ skip:
   - silver.sec_indicators
   - silver.visibility_graph_indicators
   - silver.fama_french_5
+  - silver.factor_loadings
   - gold.sec_indicators
