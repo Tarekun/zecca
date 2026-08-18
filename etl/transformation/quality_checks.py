@@ -3,6 +3,10 @@ import operator
 import polars as pl
 from typing import Any, Callable, Literal
 
+from etl.logger import get_logger
+
+logger = get_logger(__name__)
+
 # A data quality check is any function taking the model's built LazyFrame and
 # returning the rows that violate it (empty result = check passes). Raising
 # instead of returning is also a valid failure (see run_data_quality_checks).
@@ -260,6 +264,42 @@ def no_gaps(date_column: str, group_by: str | list[str]) -> DataQualityCheck:
         return expected.join(actual, on=[*group_by, date_column], how="anti")
 
     check.__name__ = f"no_gaps_{date_column}_{'_'.join(group_by)}"
+    return check
+
+
+def no_survivorship_bias(
+    timeframe_column: str, symbol_column: str
+) -> DataQualityCheck:
+    """Builds a check guarding against survivorship/lookahead bias: fails
+    unless at least one `symbol_column` value's last appearance in
+    `timeframe_column` falls strictly before the dataset's overall maximum
+    `timeframe_column` value, i.e. some symbol actually drops out of the
+    series (delisted/removed/etc.) instead of every symbol persisting all
+    the way through the latest snapshot -- which would suggest the
+    historical data was backfilled from today's roster of symbols.
+
+    Logs, at INFO level, how many symbols exhibit this drop-out behavior."""
+
+    def check(lf: pl.LazyFrame) -> pl.DataFrame:
+        last_seen = lf.group_by(symbol_column).agg(
+            pl.col(timeframe_column).max().alias("_last_seen")
+        ).collect()
+        max_timeframe = last_seen["_last_seen"].max()
+        disappeared = last_seen.filter(pl.col("_last_seen") < max_timeframe)
+
+        logger.info(
+            f"{disappeared.height} symbol(s) in '{symbol_column}' never "
+            f"reappear after a '{timeframe_column}' strictly before the "
+            f"dataset's max ({max_timeframe})"
+        )
+
+        return (
+            pl.DataFrame()
+            if disappeared.height > 0
+            else pl.DataFrame({"symbols_never_reappearing": [0]})
+        )
+
+    check.__name__ = f"no_survivorship_bias_{symbol_column}"
     return check
 
 
