@@ -51,6 +51,14 @@ def _pad_series(
             .alias("valid_until")
         )
         .drop("_next_filed")
+        # When two entries for the same CIK share the identical filed_col date
+        # (e.g. several comparative periods disclosed in one filing),
+        # valid_until ends up one day *before* filed_col for the earlier one,
+        # since it's superseded the instant its same-day successor is filed.
+        # date_ranges() on such an inverted range returns an empty list, and
+        # exploding an empty list yields one row with a null reference_date
+        # instead of zero rows -- so these entries must be dropped up front.
+        .filter(pl.col("valid_until") >= pl.col(filed_col))
         .with_columns(
             pl.date_ranges(
                 pl.col(filed_col), pl.col("valid_until"), interval="1d"
@@ -197,7 +205,6 @@ class SecCompanyFactsPaddedSilver(Model):
             quality_checks=[
                 not_empty(),
                 not_null(["cik", "reference_date", "last_filed"]),
-                # this one fails due to survivorship bias in symbols pulled from yfinance
                 not_null(["ticker"]),
                 unique(["cik", "reference_date"]),
                 column_comparison("reference_date", ">=", "last_filed"),
@@ -248,4 +255,7 @@ def test_every_filing_filed_date_present_as_reference_date(
         if missing.height > 0:
             missing_frames.append(missing)
 
-    return pl.concat(missing_frames)
+    if missing_frames:
+        return pl.concat(missing_frames)
+    else:
+        return pl.LazyFrame()
