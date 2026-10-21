@@ -22,6 +22,20 @@
         "sort": 1,
         "current": {},
         "options": []
+      },
+      {
+        "name": "indicator",
+        "label": "Overlay field",
+        "type": "query",
+        "datasource": {
+          "type": "motherduck-duckdb-datasource",
+          "uid": "duckdb-zecca"
+        },
+        "query": "SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet('/data/gold/stocks_daily/**/*.parquet', hive_partitioning = true)) WHERE column_name NOT IN ('timeframe', 'year', 'month', 'symbol', 'open', 'high', 'low', 'close', 'volume') ORDER BY column_name",
+        "refresh": 1,
+        "sort": 1,
+        "current": {},
+        "options": []
       }
     ]
   },
@@ -37,14 +51,25 @@
       "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
       "fieldConfig": {
         "defaults": { "custom": { "axisPlacement": "auto" } },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "indicator_value" },
+            "properties": [
+              { "id": "displayName", "value": "$indicator" },
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ]
+          }
+        ]
       },
       "options": {
         "mode": "candles",
         "candleStyle": "candles",
         "colorStrategy": "open-close",
         "colors": { "up": "green", "down": "red" },
-        "includeAllFields": false
+        "includeAllFields": true
       },
       "targets": [
         {
@@ -55,7 +80,7 @@
           },
           "editorMode": "code",
           "format": 1,
-          "rawSql": "SELECT timeframe AS \"time\", open, high, low, close, volume FROM read_parquet('/data/gold/stocks_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
+          "rawSql": "SELECT timeframe AS \"time\", open, high, low, close, ${indicator:raw} AS indicator_value FROM read_parquet('/data/gold/stocks_daily/**/*.parquet', hive_partitioning = true) WHERE symbol = ${symbol:sqlstring} AND $__timeFilter(timeframe) ORDER BY timeframe"
         }
       ]
     },
