@@ -28,16 +28,33 @@ close, returns `TargetWeights` (or None) from `decide()` given a point-in-time
                 .top_k(self.top_n, by="momentum")["symbol"]
             )
             return TargetWeights.equal(top)
+
+    result = run_backtest(
+        TopNMomentum(top_n=30),
+        data,                              # (timeframe, symbol, open, close, ...)
+        BacktestConfig(max_leverage=1.0),  # costs default to 5 + 5 bps
+        risk_free=load_risk_free(),
+    )
+    result.equity, result.trades, result.positions, result.events
 """
 
+from analysis.framework.costs import BpsCostModel, CostModel, NoCosts
+from analysis.framework.data import load_risk_free
+from analysis.framework.engine import run_backtest
 from analysis.framework.market import DATE_COL, SYMBOL_COL, MarketView, Panel
 from analysis.framework.params import InvalidParams, Param, ParamSpace
 from analysis.framework.periods import Period, period_key
 from analysis.framework.portfolio import PortfolioState
+from analysis.framework.result import BacktestConfig, BacktestResult
 from analysis.framework.strategy import Strategy, build_signals
 from analysis.framework.weights import InvalidTargetWeights, TargetWeights
 
 __all__ = [
+    "BacktestConfig",
+    "BacktestResult",
+    "BpsCostModel",
+    "CostModel",
+    "NoCosts",
     "DATE_COL",
     "SYMBOL_COL",
     "InvalidParams",
@@ -51,5 +68,7 @@ __all__ = [
     "Strategy",
     "TargetWeights",
     "build_signals",
+    "load_risk_free",
     "period_key",
+    "run_backtest",
 ]
