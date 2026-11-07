@@ -26,6 +26,12 @@ TRADING_DAYS_PER_WEEK = 5
 
 
 class TopNMomentum(Strategy):
+    """Holds the `top_n` symbols with the highest return over the last
+    `months_lookback` months excluding the last `weeks_ignore` weeks, equally
+    weighted, rebalanced on the first trading day of every `rebalance` period.
+
+    Months and weeks are measured in trading days (21 and 5)."""
+
     param_space = ParamSpace(
         months_lookback=Param(default=12, values=[3, 6, 9, 12]),
         weeks_ignore=Param(default=4, values=[0, 2, 4]),
