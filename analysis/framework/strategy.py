@@ -36,6 +36,7 @@ class Strategy(ABC):
     - the decision at day t may only depend on data with timeframe <= t;
     - the `prepare()` output row for day t may only depend on data <= t
       (no `shift(-n)`, no full-sample statistics such as global means/ranks);
+    - decisions must be deterministic (seed any randomness);
     - only long positions; total weight may exceed 1 only up to the run's
       configured maximum leverage.
     """

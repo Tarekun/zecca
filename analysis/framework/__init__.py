@@ -41,6 +41,7 @@ close, returns `TargetWeights` (or None) from `decide()` given a point-in-time
 from analysis.framework.costs import BpsCostModel, CostModel, NoCosts
 from analysis.framework.data import load_risk_free
 from analysis.framework.engine import run_backtest
+from analysis.framework.guardrails import LookaheadCheck, check_lookahead
 from analysis.framework.market import DATE_COL, SYMBOL_COL, MarketView, Panel
 from analysis.framework.metrics import cagr, max_drawdown, sharpe, summary, volatility
 from analysis.framework.optimization import (
@@ -59,6 +60,8 @@ from analysis.framework.strategy import Strategy, build_signals
 from analysis.framework.weights import InvalidTargetWeights, TargetWeights
 
 __all__ = [
+    "LookaheadCheck",
+    "check_lookahead",
     "BacktestConfig",
     "BacktestResult",
     "BpsCostModel",
