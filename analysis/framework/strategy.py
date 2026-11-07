@@ -32,6 +32,10 @@ class Strategy(ABC):
     `__init__`; if they do, they must accept `**params` and call
     `super().__init__(**params)` first.
 
+    `data_columns` (class attribute) lists the dataset columns the strategy
+    reads beyond `timeframe`, `symbol` and OHLCV (e.g. `("rsi", "earnings")`),
+    so that tools loading the data only load what is needed.
+
     Rules (enforced by the framework's guardrail tests, not by convention):
     - the decision at day t may only depend on data with timeframe <= t;
     - the `prepare()` output row for day t may only depend on data <= t
@@ -42,6 +46,7 @@ class Strategy(ABC):
     """
 
     param_space: ClassVar[ParamSpace] = ParamSpace()
+    data_columns: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, **params: Any) -> None:
         resolved = type(self).param_space.resolve(params)

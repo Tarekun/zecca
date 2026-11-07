@@ -55,9 +55,13 @@ def max_drawdown(result: BacktestResult) -> float:
     return float((values / values.cum_max() - 1).min())  # type: ignore[arg-type]
 
 
+def total_return(result: BacktestResult) -> float:
+    return result.total_return
+
+
 def summary(result: BacktestResult) -> dict[str, float]:
     return {
-        "total_return": result.total_return,
+        "total_return": total_return(result),
         "cagr": cagr(result),
         "volatility": volatility(result),
         "sharpe": sharpe(result),
