@@ -36,14 +36,29 @@ from analysis.framework import (
     ParamSpace,
     Strategy,
     check_lookahead,
+    grid_search,
     summary,
     walk_forward,
 )
 from analysis.framework.metrics import cagr, sharpe, total_return
+from analysis.framework.robustness import (
+    bootstrap,
+    deflated_sharpe,
+    parameter_sensitivity,
+    random_baseline,
+    random_walk_test,
+)
 
 SCHEMA_VERSION = 1
 OBJECTIVES = {"sharpe": sharpe, "cagr": cagr, "total_return": total_return}
 EXTREME_DAILY_RETURN = 0.25
+ROBUSTNESS_CHECKS = (
+    "bootstrap",
+    "random_baseline",
+    "random_walk",
+    "sensitivity",
+    "deflated_sharpe",
+)
 
 EXIT_OK, EXIT_ERROR, EXIT_INVALID, EXIT_GUARDRAIL = 0, 1, 2, 3
 
@@ -159,6 +174,15 @@ def _run(config: EvaluationConfig, args: argparse.Namespace) -> int:
         result = check.result
         assert result is not None
         report["metrics"] = summary(result)
+    elif args.protocol == "robustness":
+        result = check.result
+        assert result is not None
+        report["metrics"] = summary(result)
+        report["robustness"], grid = _robustness(
+            cls, params, panel, result, args, start, backtest_config, risk_free
+        )
+        if grid is not None:
+            candidates += [dict(p) for p in grid.scores["params"].to_list()]
     else:
         space = _param_space(cls, fixed, _json_arg(args.param_grid, "--param-grid"))
         wf = walk_forward(
@@ -191,6 +215,33 @@ def _run(config: EvaluationConfig, args: argparse.Namespace) -> int:
         report["activity"] = _activity(result)
         report["warnings"] = _warnings(result, meta.get("survivorship"))
 
+    entry = {
+        "run_id": report["run_id"],
+        "timestamp": report["timestamp"],
+        "strategy": cls.__name__,
+        "code_hash": report["strategy"]["code_hash"],
+        "protocol": args.protocol,
+        "params": params,
+        "candidates": candidates if args.protocol != "backtest" else None,
+        "protocol_args": report["protocol_args"],
+        "window": report["window"],
+        "status": report["status"],
+    }
+    previous = experiment_log.read(config.experiment_log, cls.__name__)
+    variants = experiment_log.variants(previous + [entry], cls.__name__)
+    report["experiment_log"] = {
+        "evaluations_of_strategy": len(previous) + 1,
+        "variants_tested": variants,
+    }
+    if "robustness" in report and "deflated_sharpe" in report["robustness"]:
+        assert result is not None
+        dsr = deflated_sharpe(
+            result, variants, _trials_sharpe_variance(report["robustness"], previous)
+        )
+        report["robustness"]["deflated_sharpe"] = dsr
+    if "robustness" in report:
+        report["metrics"] |= _robustness_metrics(report["robustness"])
+
     report["mlflow_run_id"] = None
     if result is not None and not args.no_mlflow:
         try:
@@ -203,27 +254,13 @@ def _run(config: EvaluationConfig, args: argparse.Namespace) -> int:
     report["elapsed_seconds"] = round(time.perf_counter() - began, 1)
     experiment_log.append(
         config.experiment_log,
-        {
-            "run_id": report["run_id"],
-            "timestamp": report["timestamp"],
-            "strategy": cls.__name__,
-            "code_hash": report["strategy"]["code_hash"],
-            "protocol": args.protocol,
-            "params": params,
-            "candidates": candidates if args.protocol == "walk_forward" else None,
-            "protocol_args": report["protocol_args"],
-            "window": report["window"],
-            "status": report["status"],
+        entry
+        | {
             "metrics": report["metrics"],
             "git": report["git"],
             "mlflow_run_id": report["mlflow_run_id"],
         },
     )
-    entries = experiment_log.read(config.experiment_log, cls.__name__)
-    report["experiment_log"] = {
-        "evaluations_of_strategy": len(entries),
-        "variants_tested": experiment_log.variants(entries, cls.__name__),
-    }
 
     if args.output:
         with open(args.output, "w") as f:
@@ -318,8 +355,126 @@ def _warnings(result: BacktestResult, survivorship: dict[str, Any] | None) -> li
     return warnings
 
 
+def _robustness(
+    cls: type[Strategy],
+    params: dict[str, Any],
+    panel: Panel,
+    result: BacktestResult,
+    args: argparse.Namespace,
+    start: date | None,
+    backtest_config: Any,
+    risk_free: pl.DataFrame | None,
+) -> tuple[dict[str, Any], Any]:
+    checks = _checks(args.checks)
+    out: dict[str, Any] = {}
+    grid = None
+    if "bootstrap" in checks:
+        out["bootstrap"] = bootstrap(result, n=args.bootstrap_samples, block=args.block)
+    if "random_baseline" in checks:
+        out["random_baseline"] = random_baseline(
+            result,
+            panel,
+            n=args.n_random,
+            config=backtest_config,
+            risk_free=risk_free,
+            start=start,
+        )
+    if "random_walk" in checks:
+        out["random_walk"] = random_walk_test(
+            cls,
+            params,
+            panel,
+            n_paths=args.n_paths,
+            config=backtest_config,
+            start=start,
+        )
+    if "sensitivity" in checks:
+        space = _param_space(cls, {}, _json_arg(args.param_grid, "--param-grid"))
+        grid = grid_search(
+            cls,
+            panel.frame,
+            start=start,
+            param_space=space,
+            objective=OBJECTIVES[args.objective],
+            config=backtest_config,
+            risk_free=risk_free,
+            n_jobs=args.n_jobs,
+        )
+        sensitivity = parameter_sensitivity(grid, space)
+        ranked = sorted(
+            (r for r in sensitivity["scores"] if math.isfinite(r["score"])),
+            key=lambda r: r["score"],
+            reverse=True,
+        )
+        rank = next(
+            (i + 1 for i, r in enumerate(ranked) if r["params"] == params), None
+        )
+        sensitivity["evaluated_params_rank"] = rank
+        out["sensitivity"] = sensitivity
+    if "deflated_sharpe" in checks:
+        out["deflated_sharpe"] = None  # computed once the variant count is known
+    return out, grid
+
+
+def _checks(value: str) -> list[str]:
+    checks = [c.strip() for c in value.split(",") if c.strip()]
+    unknown = sorted(set(checks) - set(ROBUSTNESS_CHECKS))
+    if unknown or not checks:
+        raise InvalidInput(
+            f"--checks must be a comma-separated subset of {', '.join(ROBUSTNESS_CHECKS)}"
+        )
+    return checks
+
+
+def _trials_sharpe_variance(
+    robustness: dict[str, Any], previous: list[dict[str, Any]]
+) -> float | None:
+    """Variance of the Sharpe ratios of the variants tried: from this run's
+    sensitivity grid when there is one, else from earlier evaluations."""
+    if "sensitivity" in robustness:
+        values = [r.get("sharpe") for r in robustness["sensitivity"]["scores"]]
+    else:
+        values = [(e.get("metrics") or {}).get("sharpe") for e in previous]
+    finite = [v for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
+    if len(finite) < 2:
+        return None
+    mean = sum(finite) / len(finite)
+    return sum((v - mean) ** 2 for v in finite) / (len(finite) - 1)
+
+
+def _robustness_metrics(robustness: dict[str, Any]) -> dict[str, Any]:
+    """Headline numbers of the robustness checks, flat (logged to MLflow)."""
+    out: dict[str, Any] = {}
+    if "bootstrap" in robustness:
+        out["bootstrap_sharpe_low"] = robustness["bootstrap"]["sharpe"]["low"]
+        out["bootstrap_sharpe_high"] = robustness["bootstrap"]["sharpe"]["high"]
+    if "random_baseline" in robustness:
+        rb = robustness["random_baseline"]["sharpe"]
+        out["random_baseline_percentile"] = rb["percentile"]
+        out["random_baseline_p_value"] = rb["p_value"]
+    walk = robustness.get("random_walk") or {}
+    if walk.get("status") == "ok":
+        out["random_walk_excess_return"] = walk["mean_annual_excess_return"]
+        out["random_walk_suspicious"] = float(walk["suspicious"])
+    if "sensitivity" in robustness:
+        out["sensitivity_isolated"] = float(robustness["sensitivity"]["isolated"])
+    if robustness.get("deflated_sharpe"):
+        out["deflated_sharpe"] = robustness["deflated_sharpe"]["deflated_sharpe"]
+    return out
+
+
 def _protocol_args(args: argparse.Namespace, max_leverage: float) -> dict[str, Any]:
     out: dict[str, Any] = {"max_leverage": max_leverage}
+    if args.protocol == "robustness":
+        out |= {
+            "checks": _checks(args.checks),
+            "n_random": args.n_random,
+            "bootstrap_samples": args.bootstrap_samples,
+            "block": args.block,
+            "n_paths": args.n_paths,
+            "objective": args.objective,
+            "param_grid": _json_arg(args.param_grid, "--param-grid"),
+        }
     if args.protocol == "walk_forward":
         out |= {
             "train": args.train,
@@ -431,7 +586,9 @@ def _parser() -> argparse.ArgumentParser:
         "--params", help="JSON object of parameters, e.g. '{\"top_n\": 10}'"
     )
     run.add_argument(
-        "--protocol", choices=["backtest", "walk_forward"], default="backtest"
+        "--protocol",
+        choices=["backtest", "walk_forward", "robustness"],
+        default="backtest",
     )
     run.add_argument(
         "--start", help="first evaluated day YYYY-MM-DD (earlier data is history)"
@@ -483,5 +640,35 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="parallel worker processes (-1: all cores)",
+    )
+
+    rob = run.add_argument_group(
+        "robustness options (--param-grid, --objective, --n-jobs apply to the sensitivity grid)"
+    )
+    rob.add_argument(
+        "--checks",
+        default=",".join(ROBUSTNESS_CHECKS),
+        help=f"comma-separated subset of: {', '.join(ROBUSTNESS_CHECKS)} (default: all)",
+    )
+    rob.add_argument(
+        "--n-random", type=int, default=100, help="random portfolios (default 100)"
+    )
+    rob.add_argument(
+        "--bootstrap-samples",
+        type=int,
+        default=1000,
+        help="bootstrap resamples (default 1000)",
+    )
+    rob.add_argument(
+        "--block",
+        type=int,
+        default=21,
+        help="bootstrap block length in days (default 21)",
+    )
+    rob.add_argument(
+        "--n-paths",
+        type=int,
+        default=5,
+        help="synthetic random-walk markets (default 5)",
     )
     return parser

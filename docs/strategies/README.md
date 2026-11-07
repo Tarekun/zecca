@@ -96,6 +96,7 @@ python -m analysis.evaluate run TopNMomentum           # backtest with default p
 python -m analysis.evaluate run TopNMomentum --params '{"top_n": 10}'
 python -m analysis.evaluate run TopNMomentum --protocol walk_forward \
     --params '{"rebalance": "month"}' --param-grid '{"top_n": [10, 30]}' --n-jobs 6
+python -m analysis.evaluate run TopNMomentum --protocol robustness --n-jobs 6   # is it real?
 python -m analysis.evaluate history TopNMomentum       # past evaluations, variants tested
 ```
 
@@ -104,13 +105,15 @@ python -m analysis.evaluate history TopNMomentum       # past evaluations, varia
 | option | meaning |
 |---|---|
 | `--params JSON` | Parameter values. Missing ones use the defaults. With `walk_forward` they are fixed, not searched. |
-| `--protocol` | `backtest` (default): fixed parameters. `walk_forward`: parameters re-optimized on a rolling training window and tested on the following period. |
+| `--protocol` | `backtest` (default): fixed parameters. `walk_forward`: parameters re-optimized on a rolling training window and tested on the following period. `robustness`: the backtest plus the robustness checks below. |
 | `--start`, `--end` | Evaluated period (`YYYY-MM-DD`, end exclusive). Earlier data is always available as history. `--end` defaults to the holdout start. |
 | `--max-leverage` | Maximum total target weight (default 1.0). |
 | `--train`, `--test`, `--warmup`, `--anchored` | Walk-forward windows (polars durations, e.g. `1y`, `3mo`). Defaults: `1y` / `3mo` / `1y`, rolling. |
 | `--param-grid JSON` | Walk-forward candidate values per parameter (default: the strategy's `param_space`). |
 | `--objective` | Walk-forward selection metric: `sharpe` (default), `cagr` or `total_return`. |
-| `--n-jobs` | Parallel processes for walk-forward candidates (`-1`: all cores). |
+| `--n-jobs` | Parallel processes for walk-forward or sensitivity-grid candidates (`-1`: all cores). |
+| `--checks` | Robustness checks to run, comma-separated (default: all): `bootstrap`, `random_baseline`, `random_walk`, `sensitivity`, `deflated_sharpe`. |
+| `--n-random`, `--bootstrap-samples`, `--block`, `--n-paths` | Robustness sizes: random portfolios (100), bootstrap resamples (1000), bootstrap block length in days (21), synthetic markets (5). `--param-grid` and `--objective` set the sensitivity grid. |
 | `--no-mlflow` | Don't register the run on MLflow. The experiment log still records it. |
 | `--output PATH` | Also write the report to a file. |
 | `--refresh-data` | Rebuild the market data snapshot from the data platform first. |
@@ -118,6 +121,21 @@ python -m analysis.evaluate history TopNMomentum       # past evaluations, varia
 The look-ahead guardrail is checked at different parameters depending on the protocol:
 - **`backtest`:** the given parameters.
 - **`walk_forward`:** the defaults merged with `--params`.
+- **`robustness`:** the given parameters, like `backtest`.
+
+### Robustness checks
+
+A good backtest number isn't evidence on its own. `--protocol robustness` asks five questions:
+
+| check | question | read it as |
+|---|---|---|
+| `bootstrap` | How much of the result could be noise? Block-bootstrap confidence intervals of Sharpe, CAGR and max drawdown. | If the Sharpe interval includes 0, the result is not distinguishable from luck. |
+| `random_baseline` | Is the stock selection better than chance? Random portfolios with the same rebalancing days, number of positions and weights. | `percentile` near 1 and `p_value` below 0.05 mean the picks beat random picks. |
+| `random_walk` | Does the strategy find an edge where none exists? It runs on synthetic markets where days are shuffled and returns reassigned among stocks at random. | `suspicious: true` means a bug or look-ahead. Negative excess is normal: costs, cash during warmup, and the benchmark paying no costs. |
+| `sensitivity` | Are the parameters a lucky spike? The objective over the parameter grid, with the best candidate's neighbors. | `isolated: true` means small changes destroy the result (overfit). `evaluated_params_rank` places your parameters in the grid. |
+| `deflated_sharpe` | Does the Sharpe survive the number of variants tried? Probability that the true Sharpe is positive, given the best of `variants_tested` (Bailey & López de Prado). | Above 0.95 the result survives. Every variant you try raises the bar. |
+
+The sensitivity grid counts as variants tried, so running `robustness` raises `variants_tested` by the grid size.
 
 ### Output
 
@@ -144,6 +162,7 @@ stdout carries exactly one JSON document, and logs go to stderr. Exit codes:
 | `guardrails.lookahead` | `passed`, `cutoffs`, `failures`. |
 | `metrics` | `total_return`, `cagr`, `volatility`, `sharpe` (annualized, over the risk-free rate), `max_drawdown`. Walk-forward adds `oos_score`, `mean_train_score`, `mean_test_score` and `is_oos_gap`: in-sample minus out-of-sample score, where a large gap means overfitting. |
 | `walk_forward` | Walk-forward only: `candidates_per_fold`, and `folds` with windows, chosen `params`, `train_score` and `test_score`. |
+| `robustness` | Robustness only: one section per check (see above). Headline numbers are also in `metrics`: `bootstrap_sharpe_low` and `_high`, `random_baseline_percentile` and `_p_value`, `random_walk_excess_return` and `_suspicious`, `sensitivity_isolated`, `deflated_sharpe`. |
 | `activity` | `trades`, `costs_paid`, `average_exposure`, and `events` counted by kind (`delisting`, `exit_deferred`, `buy_skipped`, `rebalance_skipped`, `buys_scaled`). |
 | `warnings` | Data caveats to read before trusting the numbers: extreme portfolio days, and the measured survivorship bias. |
 | `mlflow_run_id` | Or null with `--no-mlflow`. If tracking failed, `mlflow_error` explains why; the evaluation itself is unaffected. |
