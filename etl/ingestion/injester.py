@@ -8,6 +8,7 @@ from etl.ingestion.sec import (
     SecTickers,
     SecTickersExchange,
     SecXbrlCoverPages,
+    SecXbrlFilings,
 )
 from etl.ingestion.source import Source
 from etl.ingestion.yfinance import YFinanceTicker
@@ -28,6 +29,7 @@ def configured_sources(config: Config) -> list[Source]:
         # past quarters/datasets are immutable and never downloaded twice)
         SecFullIndex(dataplatform_root=dataplatform_root),
         SecXbrlCoverPages(dataplatform_root=dataplatform_root),
+        SecXbrlFilings(dataplatform_root=dataplatform_root),
         # yahoo finance
         YFinanceTicker(
             "1d",

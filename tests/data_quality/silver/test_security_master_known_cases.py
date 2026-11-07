@@ -79,3 +79,42 @@ def test_far_more_companies_than_todays_mapping(master):
         _DATAPLATFORM_ROOT / "silver" / "company_tickers" / "*.parquet"
     )["cik_str"].n_unique()
     assert master["cik"].n_unique() > 3 * current
+
+
+# companies that left before declaring a ticker on their cover page: their
+# ticker comes from their XBRL file names
+COMPUWARE, OCEAN_THERMAL = 859014, 827099
+AETNA, STAPLES, ST_JUDE = 1122304, 791519, 203077
+DOW_CHEMICAL, DOW_INC = 29915, 1751788
+PSEG, PSE_AND_G = 788784, 81033
+GREAT_PLAINS, KCP_AND_L = 1143068, 54476
+
+
+@pytest.mark.parametrize(
+    "ticker, day, cik",
+    [
+        ("CPWR", date(2010, 6, 1), COMPUWARE),
+        ("CPWR", date(1998, 1, 2), COMPUWARE),
+        ("CPWR", date(2020, 6, 1), OCEAN_THERMAL),
+        ("AET", date(2017, 6, 1), AETNA),
+        ("SPLS", date(2016, 6, 1), STAPLES),
+        ("STJ", date(2016, 6, 1), ST_JUDE),
+        ("DOW", date(2016, 6, 1), DOW_CHEMICAL),
+        ("DOW", date(2020, 6, 1), DOW_INC),
+        ("PEG", date(2012, 6, 1), PSEG),
+        ("GXP", date(2014, 6, 2), GREAT_PLAINS),
+    ],
+)
+def test_ticker_of_companies_gone_before_cover_page_tagging(master, ticker, day, cik):
+    assert ticker_to_cik(ticker, day, master=master) == cik
+
+
+def test_reused_ticker_not_backfilled_over_its_previous_owner(master):
+    # Ocean Thermal took CPWR in 2017; before, the CIK was other businesses
+    ocean = _rows(master, OCEAN_THERMAL, "CPWR")
+    assert ocean["valid_from"].min() >= date(2017, 5, 12)
+
+
+def test_subsidiaries_do_not_get_their_parents_ticker(master):
+    assert _rows(master, PSE_AND_G, "PEG").is_empty()
+    assert _rows(master, KCP_AND_L, "GXP").is_empty()

@@ -18,14 +18,19 @@ How it's built (see `docs/data/security_master.md` for the rationale):
   deregistered (Form 15) or stops reporting. Companies in today's
   `company_tickers.json` are always still alive.
 - **Tickers** come from the `dei:TradingSymbol` each filing declares on its
-  XBRL cover page (2009 onwards, mandatory since 2019) and from today's
-  `company_tickers.json`. A ticker is valid from the first filing declaring
-  it until the first later filing of the same company that no longer does.
-  Before the first declaration the earliest known ticker is assumed to go
-  back to the company's start (`source = "backfill"`).
+  XBRL cover page (2009 onwards, mandatory since 2019), from the prefix of
+  its XBRL file names (`cpwr-20131231.xml`, see `_filename_events` for when
+  a prefix is trusted) and from today's `company_tickers.json`. A ticker is
+  valid from the first filing showing it until the first later filing of
+  the same company that no longer does. Before the first observation the
+  earliest ticker is assumed to go back to the company's start, but not
+  past a change of company name or a long silence (`source = "backfill"`,
+  see `_backfill_start`).
 - **Conflicts**: a ticker belongs to one company at a time. When two
-  companies claim it over the same period, today's owner wins, then
-  declared beats backfilled, then the company declaring it more often.
+  companies claim it over the same period, today's owner wins, then the
+  stronger evidence (declared, file name, backfill), then an exchange-listed
+  company, then the one seen with it more often (see
+  `_resolve_ticker_conflicts`).
 """
 
 import re
@@ -41,6 +46,7 @@ from etl.ingestion.sec import (
     SecTickers,
     SecTickersExchange,
     SecXbrlCoverPages,
+    SecXbrlFilings,
 )
 from etl.logger import get_logger
 from etl.transformation.model import DEFAULT_DATAPLATFORM_ROOT, Model
@@ -48,6 +54,7 @@ from etl.transformation.quality_checks import (
     accepted_values,
     comparison,
     matches_regex,
+    min_share,
     no_overlapping_intervals,
     not_empty,
     not_null,
@@ -108,10 +115,86 @@ TERMINAL_EVENT_WINDOW = timedelta(days=365)
 QUARTERLY_REPORTER_GRACE = timedelta(days=183)
 ANNUAL_REPORTER_GRACE = timedelta(days=456)
 
-SOURCES = ["full-index", "xbrl", "company_tickers", "backfill"]
+SOURCES = ["full-index", "xbrl", "xbrl_filename", "company_tickers", "backfill"]
+# evidence strength in ticker conflicts (lower wins, see `_Interval.priority`)
+_SOURCE_RANK = {"xbrl": 0, "company_tickers": 0, "xbrl_filename": 1, "backfill": 2}
+
+# --- tickers from XBRL file names ---
+# only periodic reports: 8-K/6-K XBRL is often produced from filing agents'
+# templates whose file names carry the agent's mnemonic (e.g.
+# `gnw-20190101.xsd`, GlobeNewswire), not the company's
+FILENAME_TICKER_FORMS = PERIODIC_FORMS + [f + "/A" for f in PERIODIC_FORMS]
+# `<prefix>-<yyyymmdd>`: a prefix shaped like a ticker followed by the period
+_FILENAME_PREFIX = r"^([a-z]{1,5})[-_]\d{8}"
+_PLACEHOLDER_PREFIXES = [
+    "NONE",
+    "NA",
+    "XBRL",
+    "TEST",
+    "FIL",
+    "FORM",
+    "DOC",
+    "CIK",
+    "CK",
+    "TBD",
+]
+# a real ticker belongs to one company at a time: a prefix used by this many
+# companies in the same year is a filing agent's template; used by two, it
+# is a parent's ticker reused by a subsidiary (or a mnemonic colliding with
+# a ticker), and only goes to the one with publicly held shares
+SHARED_PREFIX_MIN_COMPANIES = 3
+# a file-name ticker that another company already declares within this long
+# of its first use was never this company's ticker
+MNEMONIC_OVERLAP_WINDOW = timedelta(days=365)
+# two companies whose use of a prefix overlaps at least this long used it
+# at the same time (less is one taking over from the other)
+SIMULTANEOUS_USE = timedelta(days=120)
+# a prefix seen on a single filing is too weak to be backfilled for decades
+MIN_FILENAME_OBSERVATIONS = 2
+# evidence of publicly held shares: 5% ownership reports (only filed about a
+# registered class of equity) and proxy statements
+EQUITY_FORMS = [
+    "SC 13G",
+    "SC 13G/A",
+    "SC 13D",
+    "SC 13D/A",
+    "SCHEDULE 13G",
+    "SCHEDULE 13G/A",
+    "SCHEDULE 13D",
+    "SCHEDULE 13D/A",
+    "DEF 14A",
+    "DEFA14A",
+]
+# a company whose equity evidence stopped this many years before a filing
+# went private or became a subsidiary, and keeps filing only for its debt:
+# its file-name prefix is its former ticker (e.g. Puget Energy, private
+# since 2009, still files as `psd`)
+# (on listed company-years, i.e. declaring an exchange, the rule misfires
+# 1.3% of the time: 1.8% with 1 year, 1.1% with 3)
+EQUITY_LAPSE_YEARS = 2
+
+# reports filed this long after a company's delisting/deregistration (its
+# final 10-Q/10-K) still show the ticker it had when it left
+FINAL_REPORT_WINDOW = timedelta(days=365)
+
+# --- backfill ---
+# a company that stopped reporting this long and came back is usually a
+# shell revived under a new business (and a new ticker)
+REPORTING_GAP_RESET = timedelta(days=730)
+# forms showing a company was exchange-listed at some point: it wins ticker
+# conflicts against companies that never were (non-traded REITs, private
+# issuers of public debt, whose file-name prefix is just a mnemonic)
+LISTING_FORMS = ["8-A12B", "20FR12B", "8-K12B", "25", "25-NSE"]
 TICKER_PATTERN = r"[A-Z0-9]{1,6}([.\-][A-Z0-9]{1,4})?"
 _TICKER_RE = re.compile(f"^{TICKER_PATTERN}$")
-_NOT_A_TICKER = {"NONE", "NA", "N/A", "N.A.", "NOTAPPLICABLE", "-", "NIL", "TBD"}
+_NOT_A_TICKER = {"NONE", "N/A", "N.A.", "NOTAPPLICABLE", "-", "NIL", "TBD", "FALSE"}
+# placeholders that are also real tickers (Nano Labs is NA, TrueCar TRUE):
+# a declared one only counts when the company holds it today
+_AMBIGUOUS_TICKERS = {"NA", "TRUE"}
+# cover page tagging became mandatory (with the exchange of each class) in
+# 2019; before, `TradingSymbol` was optional and sometimes filled with a
+# private company's old ticker or mnemonic
+MANDATORY_COVER_PAGE_DATE = date(2019, 6, 15)
 
 # dei:SecurityExchangeName enumeration -> name used in company_tickers
 _EXCHANGE_NAMES = {
@@ -175,9 +258,77 @@ def _company_lifecycles(filings: pl.LazyFrame) -> pl.DataFrame:
             .sort()
             .alias("deregistrations"),
             filed.min().alias("first_any_filing"),
+            form.is_in(LISTING_FORMS).any().alias("listed"),
         )
         .collect(engine="streaming")
     )
+
+
+def _equity_years(filings: pl.LazyFrame) -> dict[int, dict[int, int]]:
+    """cik -> {year: number of filings} evidencing publicly held shares
+    (`EQUITY_FORMS` filed by or about the company), years in order."""
+    years = (
+        filings.filter(pl.col("form_type").is_in(EQUITY_FORMS))
+        .group_by("cik", pl.col("date_filed").dt.year().alias("year"))
+        .agg(pl.len().alias("n"))
+        .sort("cik", "year")
+        .collect(engine="streaming")
+    )
+    by_cik: dict[int, dict[int, int]] = defaultdict(dict)
+    for cik, year, n in years.iter_rows():
+        by_cik[cik][year] = n
+    return by_cik
+
+
+def _equity_lapsed(years, day: date) -> bool:
+    """Whether a company with equity evidence in `years` (sorted) had
+    stopped having publicly held shares by `day`: it had some, and none in
+    the `EQUITY_LAPSE_YEARS` before."""
+    before = [y for y in years if y <= day.year + 1]
+    return bool(before) and max(before) < day.year - EQUITY_LAPSE_YEARS
+
+
+def _reporting_resumptions(filings: pl.LazyFrame) -> pl.DataFrame:
+    """(cik, resumed): periodic reports filed after a silence longer than
+    `REPORTING_GAP_RESET`."""
+    periodic = (
+        filings.filter(pl.col("form_type").is_in(PERIODIC_FORMS))
+        .select("cik", "date_filed")
+        .unique()
+        .sort("cik", "date_filed")
+    )
+    return (
+        periodic.with_columns(
+            pl.col("date_filed").shift(1).over("cik").alias("previous")
+        )
+        .filter(pl.col("date_filed") - pl.col("previous") > REPORTING_GAP_RESET)
+        .select("cik", pl.col("date_filed").alias("resumed"))
+        .collect(engine="streaming")
+    )
+
+
+# words that don't make two names different companies: legal forms, state of
+# incorporation tags ("/DE/") and holding-company wrappers
+_NAME_NOISE = re.compile(
+    r"\b(?:INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|COS|COMPANIES|LTD|"
+    r"LIMITED|PLC|LP|LLC|L ?P|L ?L ?C|SA|NV|AG|SE|AB|ASA|ADR|THE|NEW|HOLDING|"
+    r"HOLDINGS|GROUP|TRUST|BANCORP|BANCORPORATION|DE|MD|NV|NJ|NY|CA|PA|TX|FL|"
+    r"MN|MA|OH|VA|WA|CO|DEL|DELAWARE)\b"
+)
+
+
+def company_name_key(name: str | None) -> str:
+    """Key telling whether two names are the same company: case, punctuation,
+    `/STATE/` tags, legal forms and holding wrappers are ignored, so
+    `COMPUWARE CORPORATION` and `Compuware Corp /MI/` match while `TETRIDYN
+    SOLUTIONS INC` and `Ocean Thermal Energy Corp` don't."""
+    if not name:
+        return ""
+    key = name.upper().replace("&", " AND ")
+    key = re.sub(r"/[A-Z ]{1,6}/?", " ", key)
+    key = re.sub(r"[^A-Z0-9 ]", " ", key)
+    key = _NAME_NOISE.sub(" ", key)
+    return re.sub(r"\s+", " ", key).strip()
 
 
 def _name_history(filings: pl.LazyFrame, ciks: pl.DataFrame) -> pl.DataFrame:
@@ -232,6 +383,70 @@ def _ticker_declarations(cover_pages: pl.LazyFrame) -> pl.DataFrame:
     )
 
 
+def _coregistrants(filings: pl.LazyFrame) -> pl.DataFrame:
+    """(accession_number, cik) of the periodic reports filed jointly by
+    several companies (a holding company and its subsidiaries filing one
+    combined 10-K), from the full-index."""
+    if "accession_number" not in filings.collect_schema().names():
+        return pl.DataFrame(schema={"accession_number": pl.String, "cik": pl.Int64})
+    return (
+        filings.filter(pl.col("form_type").is_in(FILENAME_TICKER_FORMS))
+        .select("accession_number", "cik")
+        .drop_nulls()
+        .unique()
+        .filter(pl.len().over("accession_number") > 1)
+        .collect(engine="streaming")
+    )
+
+
+def _filename_prefixes(
+    xbrl_filings: pl.LazyFrame, coregistrants: pl.DataFrame | None = None
+) -> pl.DataFrame:
+    """(cik, accession_number, filed, prefix): the ticker-shaped prefix of
+    the XBRL file names of each periodic report (schema file, which every
+    filing has, else instance), uppercased. Placeholders and prefixes shared
+    by several companies in the same year are dropped.
+
+    The XBRL feeds list a combined filing under one of its co-registrants
+    only (often a subsidiary): its prefix is attributed to all of them
+    (`coregistrants`), and `_filename_events` gives it to the one with
+    publicly held shares."""
+    file = pl.coalesce("schema_file", "instance_file").str.to_lowercase()
+    prefixes = (
+        xbrl_filings.filter(pl.col("form_type").is_in(FILENAME_TICKER_FORMS))
+        .select(
+            "cik",
+            "accession_number",
+            pl.col("filing_date").alias("filed"),
+            file.str.extract(_FILENAME_PREFIX, 1).str.to_uppercase().alias("prefix"),
+        )
+        .filter(
+            pl.col("prefix").is_not_null(),
+            pl.col("filed").is_not_null(),
+            ~pl.col("prefix").is_in(_PLACEHOLDER_PREFIXES),
+        )
+        .collect()
+    )
+    shared = (
+        prefixes.group_by(pl.col("filed").dt.year().alias("year"), "prefix")
+        .agg(pl.col("cik").n_unique().alias("companies"))
+        .filter(pl.col("companies") >= SHARED_PREFIX_MIN_COMPANIES)
+    )
+    prefixes = (
+        prefixes.with_columns(pl.col("filed").dt.year().alias("year"))
+        .join(shared, on=["year", "prefix"], how="anti")
+        .drop("year")
+    )
+    if coregistrants is None or coregistrants.is_empty():
+        return prefixes
+    return (
+        prefixes.join(coregistrants, on="accession_number", how="left", suffix="_co")
+        .with_columns(pl.coalesce("cik_co", "cik").alias("cik"))
+        .drop("cik_co")
+        .unique()
+    )
+
+
 _EXCHANGE_WORDS = r"(?:NYSE|NASDAQ|AMEX|CBOE|OTC|ARCA|NYSE ?AMERICAN|NYSE ?ARCA|NASDAQ ?[GC]?[SM]|[A-Z ]*EXCHANGE)"
 _EXCHANGE_PREFIX = re.compile(rf"^{_EXCHANGE_WORDS}\s*:\s*")
 _EXCHANGE_SUFFIX = re.compile(
@@ -267,11 +482,17 @@ def normalize_tickers(
         if not piece or piece in _NOT_A_TICKER:
             continue
         key = _ticker_key(piece)
+        if piece in _AMBIGUOUS_TICKERS and key not in known:
+            continue
         if key in known:
             ticker = known[key]
         else:
             ticker = re.sub(r"[\s./]+", "-", piece)
-        if _TICKER_RE.match(ticker) and ticker not in tickers:
+        if (
+            _TICKER_RE.match(ticker)
+            and re.search(r"[A-Z]", ticker)
+            and ticker not in tickers
+        ):
             tickers.append(ticker)
     return tickers
 
@@ -289,12 +510,17 @@ class _Interval:
     exchange: str | None
     current_owner: bool = False
     observations: int = 0
+    listed: bool = False
 
     def priority(self) -> tuple:
-        """Sort key: lower wins a conflict over the same ticker."""
+        """Sort key: lower wins a conflict over the same ticker. Today's
+        owner first, then the stronger evidence (declared, then file name,
+        then backfill), then a company that was exchange-listed, then the
+        one seen with the ticker more often."""
         return (
             not self.current_owner,
-            self.source == "backfill",
+            _SOURCE_RANK[self.source],
+            not self.listed,
             -self.observations,
             -self.start.toordinal(),
         )
@@ -335,16 +561,37 @@ def _subtract(
 def _resolve_ticker_conflicts(intervals: list[_Interval]) -> list[_Interval]:
     """Makes each ticker belong to at most one company at a time: intervals
     are granted in priority order (see `_Interval.priority`), each keeping
-    only the parts not already granted to another company."""
+    only the parts not already granted to another company.
+
+    Two claims are dropped whole instead of trimmed: a file-name claim
+    whose very start overlaps another company's declared or current use of
+    the ticker (the prefix was a mnemonic, not the company's ticker; a later
+    overlap is just a former owner's stale prefix and is trimmed), and a
+    backfill whose company kept nothing of the ticker it extends."""
     by_ticker: dict[str, list[_Interval]] = defaultdict(list)
     for interval in intervals:
         by_ticker[interval.ticker].append(interval)
+
+    def overlaps(a: _Interval, b: _Interval) -> bool:
+        return (a.end is None or b.start < a.end) and (b.end is None or a.start < b.end)
 
     resolved = []
     for claims in by_ticker.values():
         claims.sort(key=_Interval.priority)
         granted: list[_Interval] = []
         for claim in claims:
+            if claim.source == "xbrl_filename" and any(
+                g.cik != claim.cik
+                and g.source in ("xbrl", "company_tickers")
+                and overlaps(g, claim)
+                and g.start <= claim.start + MNEMONIC_OVERLAP_WINDOW
+                for g in granted
+            ):
+                continue
+            if claim.source == "backfill" and not any(
+                g.cik == claim.cik and g.source != "backfill" for g in granted
+            ):
+                continue
             others = [(g.start, g.end) for g in granted if g.cik != claim.cik]
             for start, end in _subtract(claim.start, claim.end, others):
                 granted.append(
@@ -357,6 +604,7 @@ def _resolve_ticker_conflicts(intervals: list[_Interval]) -> list[_Interval]:
                         claim.exchange,
                         claim.current_owner,
                         claim.observations,
+                        claim.listed,
                     )
                 )
         resolved.extend(granted)
@@ -388,10 +636,14 @@ def _company_span(
     terminal_events = [
         event
         for event in (life.get("delisting_date"), life.get("deregistration_date"))
-        if event is not None and event > start
+        if event is not None
     ]
     if terminal_events:
-        return start, min(terminal_events)
+        end = min(terminal_events)
+        # a Form 25/15 filed before the first periodic report: the company's
+        # life predates EDGAR and the report was a final one (zero-length
+        # span, the company is never alive in the data)
+        return (start, end) if end > start else (end, end)
 
     last_activity = max(
         d for d in (last_report, life.get("last_declaration"), start) if d is not None
@@ -448,24 +700,78 @@ def _terminal_delisting(
     return min(after) if after else None
 
 
+def _backfill_start(
+    first_observation: date,
+    span_start: date,
+    names: list[tuple[date, str]],
+    resumptions: list[date],
+) -> date:
+    """How far back a company's earliest observed ticker is assumed to go:
+    to the company's start, but not past a change of company name (a new
+    name usually comes with a new ticker, and a CIK can be a shell reused
+    by an unrelated business) nor past a long silence in its reporting
+    (`REPORTING_GAP_RESET`)."""
+    start = span_start
+    current = [i for i, (since, _) in enumerate(names) if since <= first_observation]
+    if current:
+        k = current[-1]
+        key = company_name_key(names[k][1])
+        j = k
+        while j > 0 and company_name_key(names[j - 1][1]) == key:
+            j -= 1
+        if j > 0:
+            start = max(start, names[j][0])
+    resumed = [d for d in resumptions if d <= first_observation]
+    if resumed:
+        start = max(start, resumed[-1])
+    return start
+
+
 def _ticker_intervals(
     cik: int,
-    events: list[tuple[date, frozenset[str]]],
+    events: list[tuple[date, frozenset[str], bool]],
     observations: dict[str, int],
     exchanges: dict[str, str | None],
     snapshot: dict[str, str | None] | None,
     snapshot_date: date,
     span: tuple[date, date | None],
+    names: list[tuple[date, str]] | None = None,
+    resumptions: list[date] | None = None,
+    listed: bool = False,
 ) -> list[_Interval]:
-    """Validity intervals of each ticker a company declared (`events`: one
-    (filing date, tickers) per filing date, sorted) or currently has
-    (`snapshot`: ticker -> exchange, None if the company isn't current)."""
+    """Validity intervals of each ticker a company showed (`events`: one
+    (filing date, tickers, declared) per filing date, sorted; `declared`
+    false when the tickers come from the XBRL file name) or currently has
+    (`snapshot`: ticker -> exchange, None if the company isn't current).
+
+    A ticker is valid from the first filing showing it until the first
+    later filing that doesn't. The part before its first declaration on a
+    cover page is labelled `xbrl_filename`."""
     seen: dict[str, list[date]] = defaultdict(list)
-    for day, tickers in events:
+    first_declared: dict[str, date] = {}
+    for day, tickers, declared in events:
         for ticker in tickers:
             seen[ticker].append(day)
+            if declared:
+                first_declared.setdefault(ticker, day)
 
     intervals = []
+
+    def add(ticker, start, end, source, current_owner, n):
+        intervals.append(
+            _Interval(
+                cik,
+                ticker,
+                start,
+                end,
+                source,
+                exchanges.get(ticker),
+                current_owner=current_owner,
+                observations=n,
+                listed=listed,
+            )
+        )
+
     for ticker, days in seen.items():
         first, last = days[0], days[-1]
         current_owner = snapshot is not None and ticker in snapshot
@@ -474,22 +780,20 @@ def _ticker_intervals(
             # omitted (or mangled) it
             end = None
         else:
-            end = next((d for d, ts in events if d > last and ticker not in ts), None)
+            end = next(
+                (d for d, ts, _ in events if d > last and ticker not in ts), None
+            )
             if end is None and snapshot is not None and snapshot_date > last:
                 # the company is current but today's mapping no longer lists it
                 end = snapshot_date
-        intervals.append(
-            _Interval(
-                cik,
-                ticker,
-                first,
-                end,
-                "xbrl",
-                exchanges.get(ticker),
-                current_owner=current_owner,
-                observations=len(days),
-            )
-        )
+        declared_from = first_declared.get(ticker)
+        if declared_from is None:
+            add(ticker, first, end, "xbrl_filename", current_owner, len(days))
+        elif declared_from == first:
+            add(ticker, first, end, "xbrl", current_owner, len(days))
+        else:
+            add(ticker, first, declared_from, "xbrl_filename", current_owner, len(days))
+            add(ticker, declared_from, end, "xbrl", current_owner, len(days))
 
     for ticker, exchange in (snapshot or {}).items():
         if ticker in seen:
@@ -503,29 +807,46 @@ def _ticker_intervals(
                 "company_tickers",
                 exchange,
                 current_owner=True,
+                listed=listed,
             )
         )
 
-    # before its first declaration, assume the earliest known ticker(s) go
-    # back to the company's start
+    # a company whose only reports showing a ticker were filed after it was
+    # delisted (its final 10-Q/10-K) still had that ticker when it left
+    end = span[1]
+    if end is not None and intervals and all(i.start >= end for i in intervals):
+        final: dict[str, _Interval] = {}
+        for i in sorted(intervals, key=lambda i: _SOURCE_RANK[i.source]):
+            if i.start <= end + FINAL_REPORT_WINDOW and i.ticker not in final:
+                i.start, i.end = end - timedelta(days=1), end
+                final[i.ticker] = i
+        intervals = list(final.values())
+
+    # before its first observation, assume the earliest observed ticker(s)
+    # go back to the company's start, within the limits of `_backfill_start`
     earliest = min((i.start for i in intervals), default=None)
-    backfills = [
-        _Interval(
-            cik,
-            i.ticker,
-            span[0],
-            earliest,
-            "backfill",
-            i.exchange,
-            current_owner=False,
-            observations=i.observations,
+    if earliest is not None:
+        backfill_from = _backfill_start(
+            earliest, span[0], names or [], resumptions or []
         )
-        for i in intervals
-        if i.start == earliest and span[0] < earliest
-    ]
+        intervals += [
+            _Interval(
+                cik,
+                i.ticker,
+                backfill_from,
+                earliest,
+                "backfill",
+                i.exchange,
+                current_owner=False,
+                observations=i.observations,
+                listed=listed,
+            )
+            for i in list(intervals)
+            if i.start == earliest and backfill_from < earliest
+        ]
 
     clipped = []
-    for interval in intervals + backfills:
+    for interval in intervals:
         bounds = _clip(interval.start, interval.end, *span)
         if bounds is not None:
             interval.start, interval.end = bounds
@@ -545,6 +866,19 @@ def _segment_company(
     none, with consecutive identical rows merged."""
     start, end = span
     name_days = [d for d, _ in names]
+    if end is not None and end <= start:
+        # zero-length life (see `_company_span`): a single tickerless row
+        return [
+            {
+                "cik": cik,
+                "company_name": names[-1][1] if names else None,
+                "ticker": None,
+                "exchange": None,
+                "valid_from": start,
+                "valid_to": end,
+                "source": default_source,
+            }
+        ]
 
     def name_at(day: date) -> str | None:
         if not names:
@@ -596,11 +930,185 @@ def _segment_company(
     return rows
 
 
+def _filename_events(
+    xbrl_filings: pl.LazyFrame | None,
+    declared_by_accession: dict[str, set[str]],
+    declared_by_cik: dict[int, dict[date, set[str]]],
+    known_keys: dict[int, dict[str, str]],
+    observations: dict[int, dict[str, int]],
+    equity_years: dict[int, dict[int, int]] | None = None,
+    rejected: dict[tuple[int, str], str] | None = None,
+    evidence_floor=None,
+    coregistrants: pl.DataFrame | None = None,
+) -> dict[int, dict[date, set[str]]]:
+    """Tickers read from the file names of filings whose cover page declares
+    none (see `_filename_prefixes`), per company and filing date. A prefix
+    that is one of the company's declared or current tickers is always
+    kept; otherwise it is dropped when:
+
+    - it is shown to be a mnemonic: the company used it on filings declaring
+      other tickers (e.g. `psx` for Phillips 66 Partners). If those filings
+      always declared one same ticker, the prefix is an alias of it (`pseg`
+      for PEG) and the company's earlier filings with it show that ticker,
+      back to `evidence_floor(cik, day)` (its last change of name or long
+      silence, see `_backfill_start`)
+    - the company no longer had publicly held shares: its equity evidence
+      (`EQUITY_FORMS`) stopped more than `EQUITY_LAPSE_YEARS` earlier. Such
+      a report is kept as one showing no ticker, ending any still open
+    - another company used it at the same time (a subsidiary filing under
+      its parent's ticker): over the common period it goes to the one with
+      more equity evidence, to neither on a tie
+    - it appears on fewer than `MIN_FILENAME_OBSERVATIONS` filings and the
+      company shows no equity evidence around it
+
+    `rejected`, if given, collects the reason each dropped (cik, prefix) was
+    dropped, for diagnostics."""
+    equity_years = equity_years or {}
+    rejected = {} if rejected is None else rejected
+    if xbrl_filings is None:
+        return {}
+    prefixes = _filename_prefixes(xbrl_filings, coregistrants)
+
+    declared_keys: dict[int, set[str]] = defaultdict(set)
+    for cik, days in declared_by_cik.items():
+        for tickers in days.values():
+            declared_keys[cik].update(_ticker_key(t) for t in tickers)
+    for cik, keys in known_keys.items():
+        declared_keys[cik].update(keys)
+
+    contradicted: set[tuple[int, str]] = set()
+    cooccurring: dict[tuple[int, str], list[set[str]]] = defaultdict(list)
+    first_cooccurrence: dict[tuple[int, str], date] = {}
+    undeclared = []
+    for cik, accession, filed, prefix in prefixes.iter_rows():
+        declared = declared_by_accession.get(accession)
+        if declared:
+            if prefix not in declared:
+                contradicted.add((cik, prefix))
+            cooccurring[(cik, prefix)].append(declared)
+            first = first_cooccurrence.get((cik, prefix))
+            first_cooccurrence[(cik, prefix)] = (
+                filed if first is None else min(first, filed)
+            )
+        else:
+            undeclared.append((cik, filed, prefix))
+
+    # contradicted prefixes always seen with one same declared ticker
+    aliases: dict[tuple[int, str], tuple[str, date, date]] = {}
+    for cik, prefix in contradicted:
+        common = set.intersection(*cooccurring[(cik, prefix)])
+        if len(common) == 1 and prefix not in declared_keys[cik]:
+            first = first_cooccurrence[(cik, prefix)]
+            floor = evidence_floor(cik, first) if evidence_floor else date.min
+            aliases[(cik, prefix)] = (common.pop(), floor, first)
+
+    spelling: dict[int, dict[str, str]] = defaultdict(dict)
+    for cik, days in declared_by_cik.items():
+        for tickers in days.values():
+            for t in tickers:
+                spelling[cik].setdefault(_ticker_key(t), t)
+    for cik, keys in known_keys.items():
+        spelling[cik].update(keys)
+
+    last_declared = {cik: max(days) for cik, days in declared_by_cik.items() if days}
+
+    def equity_around(cik: int, start: date, end: date) -> int:
+        years = equity_years.get(cik, {})
+        return sum(n for y, n in years.items() if start.year - 1 <= y <= end.year + 1)
+
+    def equity_lapsed(cik: int, filed: date) -> bool:
+        if cik in known_keys or last_declared.get(cik, date.min) > filed:
+            return False  # still listed later on
+        return _equity_lapsed(equity_years.get(cik, {}), filed)
+
+    candidates = []
+    lapsed_days: dict[int, set[date]] = defaultdict(set)
+    for cik, filed, prefix in undeclared:
+        if prefix in declared_keys[cik]:
+            candidates.append((cik, filed, prefix))
+        elif (cik, prefix) in contradicted:
+            alias = aliases.get((cik, prefix))
+            if alias is not None and alias[1] <= filed < alias[2]:
+                if equity_lapsed(cik, filed):
+                    rejected.setdefault((cik, prefix), "equity lapsed")
+                    lapsed_days[cik].add(filed)
+                else:
+                    candidates.append((cik, filed, alias[0]))
+            else:
+                rejected.setdefault((cik, prefix), "mnemonic")
+        elif equity_lapsed(cik, filed):
+            rejected.setdefault((cik, prefix), "equity lapsed")
+            lapsed_days[cik].add(filed)
+        else:
+            candidates.append((cik, filed, prefix))
+
+    # simultaneous use of a prefix by several companies: over the period
+    # they overlap, it goes to the one with more equity evidence
+    used: dict[str, dict[int, list[date]]] = defaultdict(lambda: defaultdict(list))
+    for cik, filed, prefix in candidates:
+        used[prefix][cik].append(filed)
+    lost: dict[tuple[int, str], list[tuple[date, date]]] = defaultdict(list)
+    for prefix, by_cik in used.items():
+        if len(by_cik) < 2:
+            continue
+        ranges = {c: (min(d), max(d)) for c, d in by_cik.items()}
+        verified = {c for c in ranges if prefix in declared_keys[c]}
+        for c1 in ranges:
+            for c2 in ranges:
+                if c1 >= c2:
+                    continue
+                start = max(ranges[c1][0], ranges[c2][0])
+                end = min(ranges[c1][1], ranges[c2][1])
+                if end - start < SIMULTANEOUS_USE:
+                    continue  # one took over from the other
+                if verified & {c1, c2}:
+                    winners = verified & {c1, c2}
+                else:
+                    e1, e2 = equity_around(c1, start, end), equity_around(
+                        c2, start, end
+                    )
+                    winners = {c1} if e1 > e2 else {c2} if e2 > e1 else set()
+                for loser in {c1, c2} - winners if len(winners) == 1 else {c1, c2}:
+                    lost[(loser, prefix)].append((start, end))
+
+    kept = []
+    for cik, filed, prefix in candidates:
+        if any(s <= filed <= e for s, e in lost.get((cik, prefix), [])):
+            rejected.setdefault((cik, prefix), "shared")
+        else:
+            kept.append((cik, filed, prefix))
+    counts: dict[tuple[int, str], int] = defaultdict(int)
+    for cik, _, prefix in kept:
+        counts[(cik, prefix)] += 1
+
+    events: dict[int, dict[date, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for cik, filed, prefix in sorted(kept, key=lambda r: r[1]):
+        if (
+            counts[(cik, prefix)] < MIN_FILENAME_OBSERVATIONS
+            and prefix not in declared_keys[cik]
+            and not equity_around(cik, filed, filed)
+        ):
+            rejected.setdefault((cik, prefix), "single filing")
+            continue
+        rejected.pop((cik, prefix), None)
+        ticker = spelling[cik].get(prefix, prefix)
+        events[cik][filed].add(ticker)
+        observations[cik][ticker] += 1
+    # a report filed once the shares were no longer public shows no ticker:
+    # it ends any ticker still open
+    for cik, days in lapsed_days.items():
+        for day in days:
+            if day not in events[cik]:
+                events[cik][day] = set()
+    return events
+
+
 def compute_security_master(
     filings: pl.LazyFrame,
     cover_pages: pl.LazyFrame,
     current: pl.DataFrame,
     snapshot_date: date,
+    xbrl_filings: pl.LazyFrame | None = None,
 ) -> pl.DataFrame:
     """Builds the security master (see module docstring) from:
 
@@ -609,7 +1117,11 @@ def compute_security_master(
     - `cover_pages`: XBRL cover page facts as stored by `SecXbrlCoverPages`
     - `current`: today's mapping (`cik`, `ticker`, `company_name`,
       `exchange`), as of `snapshot_date`
+    - `xbrl_filings`: XBRL filings with their file names, as stored by
+      `SecXbrlFilings` (optional: without it tickers only come from cover
+      pages and today's mapping)
     """
+    coregistrants = _coregistrants(filings)
     filings = filings.select("cik", "company_name", "form_type", "date_filed")
     lifecycles = _company_lifecycles(filings)
     declarations = _ticker_declarations(cover_pages)
@@ -626,11 +1138,22 @@ def compute_security_master(
 
     # declared tickers, grouped per company and filing date
     by_filing: dict[int, dict[date, set[str]]] = defaultdict(lambda: defaultdict(set))
+    declared_by_accession: dict[str, set[str]] = defaultdict(set)
     observations: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     exchanges: dict[int, dict[str, str]] = defaultdict(dict)
-    for cik, _, filed, raw, exchange in declarations.sort("filed").iter_rows():
+    equity_years = _equity_years(filings)
+    for cik, adsh, filed, raw, exchange in declarations.sort("filed").iter_rows():
+        if (
+            filed < MANDATORY_COVER_PAGE_DATE
+            and not exchange
+            and cik not in snapshot
+            and _equity_lapsed(equity_years.get(cik, {}), filed)
+        ):
+            # an optional pre-2019 declaration by a company no longer public
+            continue
         for ticker in normalize_tickers(raw, known_keys.get(cik)):
             by_filing[cik][filed].add(ticker)
+            declared_by_accession[adsh].add(_ticker_key(ticker))
             observations[cik][ticker] += 1
             if exchange:
                 exchanges[cik][ticker] = exchange
@@ -639,11 +1162,30 @@ def compute_security_master(
     # declared a ticker, or is in today's mapping
     periodic_ciks = lifecycles.filter(pl.col("first_filing_date").is_not_null())["cik"]
     ciks = sorted(set(periodic_ciks.to_list()) | set(by_filing) | set(snapshot))
+    resumptions: dict[int, list[date]] = defaultdict(list)
+    for cik, resumed in (
+        _reporting_resumptions(filings).sort("cik", "resumed").iter_rows()
+    ):
+        resumptions[cik].append(resumed)
     ciks_df = pl.DataFrame({"cik": ciks}, schema={"cik": pl.Int64})
     names_df = _name_history(filings, ciks_df).sort("cik", "since")
     names: dict[int, list[tuple[date, str]]] = defaultdict(list)
     for cik, since, name in names_df.iter_rows():
         names[cik].append((since, name))
+
+    # tickers from file names, for filings declaring none on their cover
+    by_filename = _filename_events(
+        xbrl_filings,
+        declared_by_accession,
+        by_filing,
+        known_keys,
+        observations,
+        equity_years=equity_years,
+        evidence_floor=lambda cik, day: _backfill_start(
+            day, date.min, names.get(cik, []), resumptions.get(cik, [])
+        ),
+        coregistrants=coregistrants,
+    )
 
     lifecycle_by_cik = {
         row["cik"]: row
@@ -655,9 +1197,16 @@ def compute_security_master(
     company_columns: dict[int, dict] = {}
     for cik in ciks:
         life = dict(lifecycle_by_cik.get(cik, {}))
+        declared_days = by_filing.get(cik, {})
         events = sorted(
-            (day, frozenset(tickers)) for day, tickers in by_filing.get(cik, {}).items()
+            [(day, frozenset(ts), True) for day, ts in declared_days.items()]
+            + [
+                (day, frozenset(ts), False)
+                for day, ts in by_filename.get(cik, {}).items()
+                if day not in declared_days
+            ]
         )
+        declared_events = [e for e in events if e[2]]
         is_current = cik in snapshot
         # a company in today's mapping is listed: past Form 25/15s were
         # about single classes or exchange transfers
@@ -676,9 +1225,12 @@ def compute_security_master(
             if is_current
             else _terminal_deregistration(life.get("deregistrations"), last_report)
         )
-        life["last_declaration"] = events[-1][0] if events else None
+        life["last_declaration"] = declared_events[-1][0] if declared_events else None
         span = _company_span(
-            life, events[0][0] if events else None, is_current, snapshot_date
+            life,
+            declared_events[0][0] if declared_events else None,
+            is_current,
+            snapshot_date,
         )
         spans[cik] = span
         company_columns[cik] = {
@@ -701,6 +1253,11 @@ def compute_security_master(
                 snapshot.get(cik) if is_current else None,
                 snapshot_date,
                 span,
+                names=names[cik],
+                resumptions=resumptions.get(cik),
+                listed=bool(life.get("listed"))
+                or is_current
+                or bool(exchanges.get(cik)),
             )
         )
 
@@ -739,6 +1296,66 @@ def current_tickers_still_valid(
         .select(pl.col("cik_str").alias("cik"), "ticker")
         .join(open_rows, on=["cik", "ticker"], how="anti")
     )
+
+
+def rows_end_by_terminal_filings(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """A company delisted (Form 25) or deregistered (Form 15) has no row
+    valid after that date."""
+    end = pl.min_horizontal("delisting_date", "deregistration_date")
+    return lf.filter(
+        end.is_not_null() & (pl.col("valid_to").is_null() | (pl.col("valid_to") > end))
+    )
+
+
+def tickers_are_not_placeholders(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Tickers contain a letter and aren't placeholder words (cover pages
+    sometimes declare `N/A`, `None`, `TRUE`, `0`)."""
+    return lf.filter(
+        pl.col("ticker").is_not_null()
+        & (
+            ~pl.col("ticker").str.contains("[A-Z]")
+            | pl.col("ticker").is_in(sorted(_NOT_A_TICKER))
+        )
+    )
+
+
+def backfill_extends_an_observed_ticker(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """A backfilled row only extends backwards a ticker the same company was
+    later observed with (declared, read from a file name or current), under
+    the same company name (see `company_name_key`)."""
+    name_key = pl.col("company_name").map_elements(
+        company_name_key, return_dtype=pl.String
+    )
+    observed = (
+        lf.filter(pl.col("ticker").is_not_null(), pl.col("source") != "backfill")
+        .group_by("cik", "ticker")
+        .agg(
+            pl.col("valid_from").min().alias("first_observed"),
+            pl.col("company_name").sort_by("valid_from").first().alias("observed_name"),
+        )
+    )
+    return (
+        lf.filter(pl.col("source") == "backfill")
+        .join(observed, on=["cik", "ticker"], how="left")
+        .filter(
+            pl.col("first_observed").is_null()
+            | (pl.col("valid_to") > pl.col("first_observed"))
+            | (
+                name_key
+                != pl.col("observed_name").map_elements(
+                    company_name_key, return_dtype=pl.String
+                )
+            )
+        )
+    )
+
+
+# companies delisted from an exchange (terminal Form 25) after every filer
+# had to file XBRL (mid-2011): their ticker comes from cover pages or XBRL
+# file names, and only a few have none (BDCs, exempt from XBRL until 2022;
+# foreign issuers without equity evidence and a single report)
+XBRL_ERA_START = date(2011, 7, 1)
+XBRL_ERA_DELISTED_WITH_TICKER = 0.93
 
 
 def tickerless_rows_do_not_overlap_company_rows(lf: pl.LazyFrame) -> pl.LazyFrame:
@@ -780,6 +1397,17 @@ class SecurityMasterSilver(Model):
                 no_overlapping_intervals(["cik", "ticker"]),
                 tickerless_rows_do_not_overlap_company_rows,
                 with_root(current_tickers_still_valid, dataplatform_root),
+                rows_end_by_terminal_filings,
+                tickers_are_not_placeholders,
+                backfill_extends_an_observed_ticker,
+                min_share(
+                    "xbrl_era_delisted_companies_with_ticker",
+                    pl.col("has_known_ticker"),
+                    XBRL_ERA_DELISTED_WITH_TICKER,
+                    among=pl.col("delisting_date").is_not_null()
+                    & (pl.col("last_filing_date") >= XBRL_ERA_START),
+                    unique_by="cik",
+                ),
             ],
             dataplatform_root=dataplatform_root,
         )
@@ -822,6 +1450,9 @@ class SecurityMasterSilver(Model):
             ).read_from_disk(),
             current,
             snapshot_date,
+            xbrl_filings=SecXbrlFilings(
+                dataplatform_root=self.dataplatform_root
+            ).read_from_disk(),
         ).lazy()
 
 

@@ -7,11 +7,15 @@ from pathlib import Path
 import polars as pl
 
 sys.path.append(str(Path(__file__).parents[2]))
+import pytest
+
 from etl.ingestion.sec import (
     SecFullIndex,
     SecXbrlCoverPages,
+    SecXbrlFilings,
     parse_master_index,
     parse_notes_dataset,
+    parse_xbrl_rss,
 )
 
 MASTER_IDX = """Description:           Master Index of EDGAR Dissemination Feed
@@ -168,3 +172,144 @@ def test_cover_pages_rerun_only_downloads_new_datasets(tmp_path):
         "2019q2",
         "2026_10",
     ]
+
+
+# --- monthly XBRL feeds ---
+
+
+def _xbrl_feed(namespace: str, *items: str) -> bytes:
+    return (
+        '<?xml version="1.0" encoding="windows-1252"?><rss version="2.0"><channel>'
+        + "".join(items)
+        + "</channel></rss>"
+    ).encode()
+
+
+def _xbrl_item(namespace, cik, accession, form, filed, *files):
+    xbrl_files = "".join(
+        f'<edgar:xbrlFile edgar:sequence="{i}" edgar:file="{name}" edgar:type="{kind}" />'
+        for i, (name, kind) in enumerate(files, start=1)
+    )
+    return (
+        f"<item><title>x</title>"
+        f'<edgar:xbrlFiling xmlns:edgar="{namespace}">'
+        f"<edgar:companyName>Co</edgar:companyName>"
+        f"<edgar:formType>{form}</edgar:formType>"
+        f"<edgar:filingDate>{filed}</edgar:filingDate>"
+        f"<edgar:cikNumber>{cik:010d}</edgar:cikNumber>"
+        f"<edgar:accessionNumber>{accession}</edgar:accessionNumber>"
+        f"<edgar:period>20131231</edgar:period>"
+        f"<edgar:xbrlFiles>{xbrl_files}</edgar:xbrlFiles>"
+        f"</edgar:xbrlFiling></item>"
+    )
+
+
+OLD_NS = "http://www.sec.gov/Archives/edgar"
+NEW_NS = "https://www.sec.gov/Archives/edgar"
+
+
+def test_parse_xbrl_rss_reads_instance_and_schema_names():
+    feed = _xbrl_feed(
+        OLD_NS,
+        _xbrl_item(
+            OLD_NS,
+            859014,
+            "0000859014-14-000010",
+            "10-Q",
+            "02/05/2014",
+            ("form10q.htm", "10-Q"),
+            ("cpwr-20131231.xml", "EX-101.INS"),
+            ("cpwr-20131231.xsd", "EX-101.SCH"),
+        ),
+    )
+
+    df = parse_xbrl_rss(feed)
+
+    assert df.select(
+        "cik", "form_type", "filing_date", "instance_file", "schema_file"
+    ).row(0) == (
+        859014,
+        "10-Q",
+        date(2014, 2, 5),
+        "cpwr-20131231.xml",
+        "cpwr-20131231.xsd",
+    )
+
+
+def test_parse_xbrl_rss_handles_https_namespace_and_inline_xbrl():
+    # since 2020 the feeds use https://, and inline XBRL filings list no
+    # instance document, only the schema
+    feed = _xbrl_feed(
+        NEW_NS,
+        _xbrl_item(
+            NEW_NS,
+            320193,
+            "0000320193-23-000106",
+            "10-K",
+            "11/03/2023",
+            ("aapl-20230930.htm", "10-K"),
+            ("aapl-20230930.xsd", "EX-101.SCH"),
+        ),
+    )
+
+    row = parse_xbrl_rss(feed).row(0, named=True)
+
+    assert row["instance_file"] is None
+    assert row["schema_file"] == "aapl-20230930.xsd"
+
+
+def test_parse_xbrl_rss_fails_on_unparsed_items():
+    feed = _xbrl_feed(
+        OLD_NS,
+        _xbrl_item(
+            "https://example.com/another-namespace",
+            1,
+            "0000000001-14-000001",
+            "10-K",
+            "02/05/2014",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="1 items but 0 parsed"):
+        parse_xbrl_rss(feed)
+
+
+class _OfflineXbrlFilings(SecXbrlFilings):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.downloaded: list[tuple[int, int]] = []
+
+    def load_month(self, year, month, today):
+        self.downloaded.append((year, month))
+        feed = _xbrl_feed(
+            OLD_NS,
+            _xbrl_item(
+                OLD_NS,
+                1,
+                f"0000000001-{year % 100:02d}-{month:06d}",
+                "10-Q",
+                f"{month:02d}/15/{year}",
+                ("abc-20131231.xsd", "EX-101.SCH"),
+            ),
+        )
+        return parse_xbrl_rss(feed).with_columns(
+            pl.lit(year, pl.Int32).alias("year"),
+            pl.lit(month, pl.Int32).alias("month"),
+            pl.lit(today, pl.Date).alias("ingested_at"),
+        )
+
+
+def test_xbrl_filings_rerun_only_downloads_open_months(tmp_path):
+    source = _OfflineXbrlFilings(dataplatform_root=str(tmp_path))
+
+    source.ingest(today=date(2005, 6, 20))
+    assert source.downloaded == [(2005, 4), (2005, 5), (2005, 6)]
+
+    # two weeks later: April and May are final, June was still open
+    source.downloaded.clear()
+    source.ingest(today=date(2005, 7, 10))
+    assert source.downloaded == [(2005, 6), (2005, 7)]
+
+    stored = source.read_from_disk().collect()
+    assert stored.select("year", "month").unique().height == 4
+    assert stored.filter(pl.col("month") == 6).height == 1

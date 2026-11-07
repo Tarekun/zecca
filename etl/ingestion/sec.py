@@ -4,6 +4,7 @@ import re
 import tempfile
 import time
 import zipfile
+import xml.etree.ElementTree as ET
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterator
@@ -234,6 +235,169 @@ class SecFullIndex(TableLike):
                 self.id,
                 year,
                 quarter,
+                df.height,
+                i,
+                len(pending),
+            )
+            yield df
+
+    def read_from_disk(self) -> pl.LazyFrame:
+        return pl.scan_parquet(
+            str(self.root_dir / "**" / "*.parquet"), hive_partitioning=True
+        )
+
+
+# --- monthly XBRL filing feeds (instance file names) --------------------------
+
+XBRL_RSS_FIRST_MONTH = (2005, 4)
+# the feeds' namespace changed from http:// to https:// in 2020
+_EDGAR_NAMESPACES = (
+    "{http://www.sec.gov/Archives/edgar}",
+    "{https://www.sec.gov/Archives/edgar}",
+)
+
+_XBRL_FILINGS_SCHEMA = {
+    "accession_number": pl.String,
+    "cik": pl.Int64,
+    "company_name": pl.String,
+    "form_type": pl.String,
+    "filing_date": pl.Date,
+    "period": pl.String,
+    "instance_file": pl.String,
+    "schema_file": pl.String,
+}
+
+
+def _month_end(year: int, month: int) -> date:
+    if month == 12:
+        return date(year, 12, 31)
+    return date(year, month + 1, 1) - timedelta(days=1)
+
+
+def parse_xbrl_rss(content: bytes) -> pl.DataFrame:
+    """Parses an EDGAR monthly XBRL feed (`xbrlrss-YYYY-MM.xml`): one row per
+    XBRL filing with the names of its instance document (`EX-101.INS`, e.g.
+    `aapl-20180929.xml`) and taxonomy schema (`EX-101.SCH`, e.g.
+    `aapl-20230930.xsd`). Inline XBRL filings (from 2019) list no instance,
+    but always a schema with the same prefix."""
+
+    rows: dict[str, list] = {c: [] for c in _XBRL_FILINGS_SCHEMA}
+    items = 0
+    for _, element in ET.iterparse(io.BytesIO(content)):
+        if element.tag == "item":
+            items += 1
+            continue
+        ns = next(
+            (n for n in _EDGAR_NAMESPACES if element.tag == n + "xbrlFiling"), None
+        )
+        if ns is None:
+            continue
+
+        def text(tag: str) -> str | None:
+            value = element.findtext(ns + tag)
+            return value.strip() if value and value.strip() else None
+
+        files: dict[str, str] = {}
+        for f in element.iter(ns + "xbrlFile"):
+            # EX-101.* since 2009, EX-100.* in the 2005-2008 voluntary program
+            kind = (f.get(ns + "type") or "").upper().split(".")[-1]
+            files.setdefault(kind, f.get(ns + "file"))
+        rows["accession_number"].append(text("accessionNumber"))
+        rows["cik"].append(int(text("cikNumber") or 0) or None)
+        rows["company_name"].append(text("companyName"))
+        rows["form_type"].append(text("formType"))
+        rows["filing_date"].append(text("filingDate"))
+        rows["period"].append(text("period"))
+        rows["instance_file"].append(files.get("INS"))
+        rows["schema_file"].append(files.get("SCH"))
+        element.clear()
+    if items != len(rows["accession_number"]):
+        # a format change would otherwise silently store empty months
+        raise ValueError(
+            f"XBRL feed has {items} items but {len(rows['accession_number'])} "
+            "parsed filings"
+        )
+
+    return pl.DataFrame(
+        rows, schema={**_XBRL_FILINGS_SCHEMA, "filing_date": pl.String}
+    ).with_columns(pl.col("filing_date").str.to_date("%m/%d/%Y", strict=False))
+
+
+class SecXbrlFilings(TableLike):
+    """Every XBRL filing ever submitted to EDGAR, from the monthly feeds at
+    `edgar/monthly/xbrlrss-YYYY-MM.xml` (from April 2005), with the file
+    names of its XBRL instance document and taxonomy schema.
+
+    Their prefix is the historical ticker source for filings whose cover
+    page doesn't declare `dei:TradingSymbol` (mostly before 2019): the EDGAR
+    Filer Manual asks for `<prefix>-<period date>.xml`, with the prefix "the
+    registrant's ticker symbol or other mnemonic abbreviation". On filings
+    that also declare their ticker, the prefix matches it ~97% of the time
+    in every year since 2009. The DERA datasets have the instance name too
+    (`sub.instance`), but re-downloading them would cost ~40GB against
+    ~0.5GB of gzipped feeds.
+
+    Stored hive-partitioned by year/month. Incremental like `SecFullIndex`:
+    a month downloaded after it ended (plus a few days) is never fetched
+    again."""
+
+    _URL = "https://www.sec.gov/Archives/edgar/monthly/xbrlrss-{year}-{month:02d}.xml"
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(
+            name="xbrl_filings",
+            key_columns=["accession_number"],
+            partitioning_columns=["year", "month"],
+            **kwargs,
+        )
+
+    def _partition_dir(self, year: int, month: int) -> Path:
+        return self.root_dir / f"year={year}" / f"month={month}"
+
+    def _is_final(self, year: int, month: int) -> bool:
+        files = list(self._partition_dir(year, month).glob("*.parquet"))
+        if not files:
+            return False
+        ingested_at = (
+            pl.scan_parquet(files).select(pl.col("ingested_at").min()).collect().item()
+        )
+        settled = _month_end(year, month) + timedelta(days=_QUARTER_SETTLE_DAYS)
+        return ingested_at is not None and ingested_at > settled
+
+    def pending_months(self, today: date | None = None) -> list[tuple[int, int]]:
+        today = today or date.today()
+        months = [
+            (year, month)
+            for year in range(XBRL_RSS_FIRST_MONTH[0], today.year + 1)
+            for month in range(1, 13)
+            if XBRL_RSS_FIRST_MONTH <= (year, month) <= (today.year, today.month)
+        ]
+        return [m for m in months if not self._is_final(*m)]
+
+    def load_month(self, year: int, month: int, today: date) -> pl.DataFrame:
+        response = _sec_get(self._URL.format(year=year, month=month))
+        return (
+            parse_xbrl_rss(response.content)
+            .filter(pl.col("accession_number").is_not_null())
+            .unique("accession_number", keep="first")
+            .with_columns(
+                pl.lit(year, pl.Int32).alias("year"),
+                pl.lit(month, pl.Int32).alias("month"),
+                pl.lit(today, pl.Date).alias("ingested_at"),
+            )
+        )
+
+    def load(self, **kwargs) -> Iterator[pl.DataFrame]:
+        today = kwargs.get("today") or date.today()
+        pending = self.pending_months(today)
+        logger.info("%s: %d month(s) to download", self.id, len(pending))
+        for i, (year, month) in enumerate(pending, start=1):
+            df = self.load_month(year, month, today)
+            logger.info(
+                "%s: %d-%02d downloaded, %d filings (%d/%d)",
+                self.id,
+                year,
+                month,
                 df.height,
                 i,
                 len(pending),
