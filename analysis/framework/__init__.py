@@ -42,6 +42,15 @@ from analysis.framework.costs import BpsCostModel, CostModel, NoCosts
 from analysis.framework.data import load_risk_free
 from analysis.framework.engine import run_backtest
 from analysis.framework.market import DATE_COL, SYMBOL_COL, MarketView, Panel
+from analysis.framework.metrics import cagr, max_drawdown, sharpe, summary, volatility
+from analysis.framework.optimization import (
+    Fold,
+    GridSearchResult,
+    WalkForwardResult,
+    grid_search,
+    make_folds,
+    walk_forward,
+)
 from analysis.framework.params import InvalidParams, Param, ParamSpace
 from analysis.framework.periods import Period, period_key
 from analysis.framework.portfolio import PortfolioState
@@ -54,21 +63,32 @@ __all__ = [
     "BacktestResult",
     "BpsCostModel",
     "CostModel",
-    "NoCosts",
     "DATE_COL",
-    "SYMBOL_COL",
+    "Fold",
+    "GridSearchResult",
     "InvalidParams",
     "InvalidTargetWeights",
     "MarketView",
+    "NoCosts",
     "Panel",
     "Param",
     "ParamSpace",
     "Period",
     "PortfolioState",
+    "SYMBOL_COL",
     "Strategy",
     "TargetWeights",
+    "WalkForwardResult",
     "build_signals",
+    "cagr",
+    "grid_search",
     "load_risk_free",
+    "make_folds",
+    "max_drawdown",
     "period_key",
     "run_backtest",
+    "sharpe",
+    "summary",
+    "volatility",
+    "walk_forward",
 ]
