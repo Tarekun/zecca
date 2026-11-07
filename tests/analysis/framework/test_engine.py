@@ -328,3 +328,57 @@ def test_results_up_to_t_do_not_depend_on_future_data():
     expected = full.equity.filter(pl.col("timeframe") <= cutoff)
     assert truncated.equity.equals(expected)
     assert full.trades.height > 10  # the strategy actually traded
+
+
+class TestStartAndInitialPortfolio:
+    class HistoryReader(Strategy):
+        def __init__(self, **params):
+            super().__init__(**params)
+            self.history_lengths = []
+
+        def decide(self, market, portfolio):
+            self.history_lengths.append(len(market.trading_days()))
+            return {"A": 1.0} if not portfolio.positions else None
+
+    def test_warmup_is_visible_but_not_traded(self):
+        prices = [(float(10 + i), float(10 + i)) for i in range(6)]
+        strategy = self.HistoryReader()
+        result = run_backtest(strategy, market({"A": prices}), FREE, start=DAYS[3])
+
+        # decided at the close before start, executed at the start's open
+        assert result.trades.select("timeframe", "quote").rows() == [(DAYS[3], 13.0)]
+        assert result.equity["timeframe"].to_list() == DAYS[3:6]
+        assert result.initial_value == 10_000
+        # the first decision already sees the 3 warmup days
+        assert strategy.history_lengths[0] == 3
+
+    def test_start_on_a_non_trading_day_uses_the_next_one(self):
+        result = run_backtest(
+            scripted({}), market({"A": flat(1.0, 10)}), FREE, start=date(2024, 1, 6)
+        )
+        assert result.equity["timeframe"][0] == date(2024, 1, 8)
+
+    def test_start_after_the_data(self):
+        with pytest.raises(ValueError, match="No trading days"):
+            run_backtest(scripted({}), market({"A": flat(1.0, 3)}), FREE, start=DAYS[5])
+
+    def test_initial_portfolio(self):
+        from analysis.framework import PortfolioState
+
+        initial = PortfolioState(
+            DAYS[0], cash=500.0, positions={"A": 10.0}, prices={"A": 50.0}
+        )
+        result = run_backtest(
+            scripted({}), market({"A": [(60.0, 60.0)] * 3}), FREE, initial=initial
+        )
+        assert result.initial_value == 1_000.0
+        assert equity(result) == pytest.approx([1_100.0] * 3)
+        assert result.final_state.positions == {"A": 10.0}
+        assert result.total_return == pytest.approx(0.1)
+
+    def test_equity_records_risk_free(self):
+        rf = pl.DataFrame({"timeframe": DAYS[:3], "rf": [0.001, 0.002, 0.003]})
+        result = run_backtest(
+            scripted({}), market({"A": flat(1.0, 3)}), FREE, risk_free=rf
+        )
+        assert result.equity["risk_free"].to_list() == [0.001, 0.002, 0.003]
