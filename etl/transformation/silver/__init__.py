@@ -8,6 +8,7 @@ from etl.transformation.silver.sec_company_facts_padded import (
     SecCompanyFactsPaddedSilver,
 )
 from etl.transformation.silver.sec_indicators import SecIndicatorsSilver
+from etl.transformation.silver.security_master import SecurityMasterSilver
 from etl.transformation.silver.stocks_rankings import StocksRankingsSilver
 from etl.transformation.silver.stocks_daily import StocksDailySilver
 from etl.transformation.silver.symbol_embeddings import SymbolEmbeddingsSilver
@@ -27,6 +28,7 @@ __all__ = [
     "StocksRankingsSilver",
     "StocksDailySilver",
     "SecIndicatorsSilver",
+    "SecurityMasterSilver",
     "SymbolEmbeddingsSilver",
     # "VisibilityGraphIndicatorsSilver",
 ]

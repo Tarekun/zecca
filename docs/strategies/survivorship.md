@@ -32,7 +32,7 @@ A real fix needs daily prices for delisted companies. Free options found in Nove
 | Delisted prices | [Massive](https://massive.com/stocks) (formerly Polygon) | Delisted tickers kept with history; free tier is end-of-day and limited to 5 calls per minute |
 | Delisted prices | [MarketParquet](https://marketparquet.com/guides/free-historical-stock-data), [FinzData](https://finzdata.com/survivorship-free-stock-data) | Survivorship-free, but the free tier covers only the last ~12 months; full history is paid |
 | Delisted symbol list | [EODHD](https://eodhd.com/financial-apis/delisted-stock-companies-data-2) | Delisted US stocks list available with a free signup; price history is commercial |
-| Delisting dates | SEC EDGAR Form 25 / 25-NSE | Official and free: exchanges file a Form 25 when they delist a security ([background](https://www.edgar.tools/blog/stock-delisting-form-25-explained)). Gives who died and when, not prices. |
+| Delisting dates | SEC EDGAR Form 25 / 25-NSE | **Ingested** (#122): `silver.security_master` ([docs](../data/security_master.md)). Gives who died and when, not prices. |
 | Index membership | [unliftedq/index-constitution](https://awesome.ecosyste.ms/projects/github.com%2Funliftedq%2Findex-constitution) | Historical S&P 500, Nasdaq 100 and Dow 30 membership with a change log, MIT licensed. Uses current tickers, so renamed companies aren't preserved. |
 
-Until one of these is ingested, the bias stays and every evaluation report states it.
+The point-in-time universe now exists: `silver.security_master` lists every company alive on any day since 1993, delisted ones included, keyed by CIK and with the ticker valid at the time (`listed_at(date)`, `ticker_to_cik(ticker, date)`; see [the docs](../data/security_master.md)). Prices for the delisted companies are still missing, so until a price source is ingested the bias stays and every evaluation report states it.

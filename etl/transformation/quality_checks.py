@@ -309,3 +309,60 @@ class DataQualityError(Exception):
             f"{model_id} failed {len(failures)} data quality check(s):\n"
             + "\n".join(f"  - {failure}" for failure in failures)
         )
+
+
+def no_overlapping_intervals(
+    group_by: str | list[str],
+    start_column: str = "valid_from",
+    end_column: str = "valid_to",
+    distinct_by: str | list[str] | None = None,
+) -> DataQualityCheck:
+    """Builds a check that fails on any pair of rows sharing the same
+    `group_by` values whose `[start_column, end_column)` intervals overlap.
+    Intervals are half-open and a null `end_column` means open-ended (still
+    valid). Rows with a null in any `group_by` column are ignored.
+
+    With `distinct_by`, only pairs that differ on those columns count, e.g.
+    `group_by="ticker", distinct_by="cik"` checks that a ticker belongs to a
+    single company at a time while allowing one company to have several
+    rows for the same ticker (that's a separate check on
+    `group_by=["cik", "ticker"]`).
+
+    Returns one row per overlapping pair, with both rows' intervals."""
+    group_by = [group_by] if isinstance(group_by, str) else list(group_by)
+    distinct_by = (
+        []
+        if distinct_by is None
+        else [distinct_by] if isinstance(distinct_by, str) else list(distinct_by)
+    )
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame:
+        rows = (
+            lf.select(
+                list(dict.fromkeys([*group_by, *distinct_by, start_column, end_column]))
+            )
+            .drop_nulls(group_by)
+            .with_row_index("_row")
+        )
+        pairs = rows.join(rows, on=group_by, how="inner", suffix="_other").filter(
+            pl.col("_row") < pl.col("_row_other")
+        )
+        if distinct_by:
+            pairs = pairs.filter(
+                pl.any_horizontal(
+                    pl.col(c).ne_missing(pl.col(f"{c}_other")) for c in distinct_by
+                )
+            )
+        starts_before_other_ends = pl.col(f"{end_column}_other").is_null() | (
+            pl.col(start_column) < pl.col(f"{end_column}_other")
+        )
+        other_starts_before_end = pl.col(end_column).is_null() | (
+            pl.col(f"{start_column}_other") < pl.col(end_column)
+        )
+        return pairs.filter(starts_before_other_ends & other_starts_before_end).drop(
+            "_row", "_row_other"
+        )
+
+    suffix = f"_across_{'_'.join(distinct_by)}" if distinct_by else ""
+    check.__name__ = f"no_overlapping_intervals_{'_'.join(group_by)}{suffix}"
+    return check

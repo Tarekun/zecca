@@ -1,7 +1,7 @@
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 import polars as pl
 import yaml
@@ -90,17 +90,26 @@ class TableLike(Source):
         self.partitioning_columns = partitioning_columns
         self.format = format
 
-    def _persist(self, data: pl.DataFrame) -> None:
-        if data.is_empty():
+    def _persist(self, data: pl.DataFrame | Iterable[pl.DataFrame]) -> None:
+        """Upserts `data` into the on-disk store. `data` may also be an
+        iterable of DataFrames (e.g. a generator yielding one batch per
+        downloaded file), in which case each batch is upserted as soon as
+        it is produced, so the whole history is never held in memory."""
+        batches = [data] if isinstance(data, pl.DataFrame) else data
+        persisted_any = False
+        for batch in batches:
+            if batch.is_empty():
+                continue
+            upsert_df(
+                batch,
+                self.name,
+                str(Path(self.dataplatform_root) / self.layer),
+                self.key_columns,
+                self.partitioning_columns or None,
+            )
+            persisted_any = True
+        if not persisted_any:
             logger.info("%s: nothing to persist, load() returned no rows", self.id)
-            return
-        upsert_df(
-            data,
-            self.name,
-            str(Path(self.dataplatform_root) / self.layer),
-            self.key_columns,
-            self.partitioning_columns or None,
-        )
 
     def read_from_disk(self) -> pl.LazyFrame:
         glob_pattern = (
