@@ -25,7 +25,7 @@ class SecIndicatorsGold(Model):
     def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: SecIndicatorsSilver")
         return (
-            SecIndicatorsSilver()
+            SecIndicatorsSilver(dataplatform_root=self.dataplatform_root)
             .read_from_disk()
             .sort("cik_count", descending=True)
             .select(["cik_count", "namespace", "indicator", "label", "description"])

@@ -9,6 +9,22 @@ from typing import Any, Callable, Literal
 DataQualityCheck = Callable[[pl.LazyFrame], pl.LazyFrame | pl.DataFrame]
 
 
+def with_root(
+    check_fn: Callable[[pl.LazyFrame, str], pl.LazyFrame | pl.DataFrame],
+    dataplatform_root: str,
+) -> DataQualityCheck:
+    """Binds `dataplatform_root` to a custom check that reads other models
+    (`check_fn(lf, dataplatform_root)`), so it reads them from the same data
+    platform as the model being checked. Keeps `check_fn`'s name, which
+    names the check's violations CSV."""
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame | pl.DataFrame:
+        return check_fn(lf, dataplatform_root)
+
+    check.__name__ = check_fn.__name__
+    return check
+
+
 def not_null(columns: str | list[str]) -> DataQualityCheck:
     """Builds a check that fails on any row where one of `columns` is null."""
     columns = [columns] if isinstance(columns, str) else list(columns)

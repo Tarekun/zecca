@@ -17,14 +17,19 @@ class GoodSymbolsSilver(Model):
                 not_empty(),
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
-                foreign_key(["timeframe", "symbol"], target_model=CandlesDailySilver),
+                foreign_key(
+                    ["timeframe", "symbol"],
+                    target_model=CandlesDailySilver(
+                        dataplatform_root=dataplatform_root
+                    ),
+                ),
             ],
             dataplatform_root=dataplatform_root,
         )
 
     def _build(self) -> pl.LazyFrame:
         return (
-            StocksRankingsSilver()
+            StocksRankingsSilver(dataplatform_root=self.dataplatform_root)
             .read_from_disk()
             .filter(pl.col("float_adjusted_market_cap_rank") < RANK_THRESHOLD)
             .select(["timeframe", "symbol"])

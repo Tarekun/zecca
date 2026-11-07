@@ -6,6 +6,7 @@ import polars as pl
 from etl.logger import get_logger
 from etl.ingestion.sec import SecCompanyFacts
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import with_root
 from etl.transformation.quality_checks import (
     accepted_values,
     is_finite,
@@ -142,7 +143,7 @@ def _extract_rows_from_dict(data: dict, file_path: str) -> pl.DataFrame:
     return pl.from_dicts(rows, schema=_SCHEMA)
 
 
-def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
+def _enrich_with_float_price(df: pl.DataFrame, dataplatform_root: str) -> pl.DataFrame:
     """Joins each public float entry with the opening price on its end date and
     computes ``estimated_float_shares = non_affiliate_valuation / open``.
 
@@ -152,13 +153,13 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
 
     try:
         tickers = (
-            CompanyTickersSilver()
+            CompanyTickersSilver(dataplatform_root=dataplatform_root)
             .read_from_disk()
             .select(pl.col("cik_str").alias("cik"), pl.col("ticker"))
             .collect()
         )
         prices = (
-            CandlesDailySilver()
+            CandlesDailySilver(dataplatform_root=dataplatform_root)
             .read_from_disk()
             .select(["timeframe", "symbol", "open"])
             .rename({"timeframe": "public_float_end", "symbol": "ticker"})
@@ -185,8 +186,9 @@ def _enrich_with_float_price(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def compute_from_source(sec_data_path: Path) -> pl.DataFrame:
-    """Parse all SEC company facts JSON files under ``sec_data_path`` into a
+def compute_from_source(dataplatform_root: str) -> pl.DataFrame:
+    """Parse all SEC company facts JSON files of the ``raw.company_facts``
+    source under ``dataplatform_root`` into a
     flat DataFrame of EntityCommonStockSharesOutstanding, EntityPublicFloat,
     and annual NetIncomeLoss entries (see ``_extract_rows_from_file``), then
     estimate each public float entry's implied share count (see
@@ -215,7 +217,7 @@ def compute_from_source(sec_data_path: Path) -> pl.DataFrame:
         - ``earnings``                 – annual NetIncomeLoss value in USD
     """
 
-    source = SecCompanyFacts()
+    source = SecCompanyFacts(dataplatform_root=dataplatform_root)
     rows = []
     for item in source.items():
         data = source.read_item(item)
@@ -225,7 +227,7 @@ def compute_from_source(sec_data_path: Path) -> pl.DataFrame:
     df = pl.concat(rows).with_columns(
         [pl.col(c).str.to_date(format="%Y-%m-%d", strict=False) for c in _DATE_COLUMNS]
     )
-    return _enrich_with_float_price(df)
+    return _enrich_with_float_price(df, dataplatform_root)
 
 
 class SecCompanyFactsSilver(Model):
@@ -242,7 +244,7 @@ class SecCompanyFactsSilver(Model):
                 is_finite(["estimated_float_shares"]),
                 not_null(["cik", "source_file"]),
                 test_each_cik_has_at_least_one_metric,
-                test_cik_count_matches_file_count,
+                with_root(test_cik_count_matches_file_count, dataplatform_root),
                 accepted_values(
                     "shares_outstanding_fp",
                     [
@@ -267,7 +269,7 @@ class SecCompanyFactsSilver(Model):
         )
 
     def _build(self) -> pl.LazyFrame:
-        return compute_from_source(Path(self.dataplatform_root) / "raw" / "sec").lazy()
+        return compute_from_source(self.dataplatform_root).lazy()
 
 
 def test_each_cik_has_at_least_one_metric(lf: pl.LazyFrame) -> pl.LazyFrame:
@@ -292,13 +294,13 @@ def test_each_cik_has_at_least_one_metric(lf: pl.LazyFrame) -> pl.LazyFrame:
     return missing_val
 
 
-def test_cik_count_matches_file_count(lf: pl.LazyFrame) -> pl.LazyFrame:
+def test_cik_count_matches_file_count(
+    lf: pl.LazyFrame, dataplatform_root: str
+) -> pl.LazyFrame:
     """The number of distinct CIK values in the silver model must equal the number
-    of source JSON files under dataplatform/raw/sec — one row (possibly null) per file.
+    of source JSON files of raw.company_facts — one row (possibly null) per file.
     """
-    file_count = len(
-        list(Path(f"./{DEFAULT_DATAPLATFORM_ROOT}/raw/sec").glob("*.json"))
-    )
+    file_count = len(SecCompanyFacts(dataplatform_root=dataplatform_root).items())
     distinct_ciks = lf.select(pl.col("cik").n_unique()).collect().item()
 
     assert distinct_ciks == file_count, (

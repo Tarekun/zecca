@@ -20,4 +20,6 @@ class VisibilityGraphIndicatorsGold(Model):
 
     def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: StocksDailySilver")
-        return StocksDailySilver().read_from_disk()
+        return StocksDailySilver(
+            dataplatform_root=self.dataplatform_root
+        ).read_from_disk()
