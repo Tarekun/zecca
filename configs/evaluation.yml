@@ -1,0 +1,26 @@
+# Configuration of `python -m analysis.evaluate` (strategy evaluation CLI).
+# Paths are relative to the repository root.
+
+# Data from this date on is the locked holdout: excluded from every evaluation
+# unless --holdout is passed explicitly. It is a fixed date (not "the last N
+# months") so that new data never silently moves old holdout days into the
+# development period. Agents must never use --holdout.
+holdout_start: 2025-07-01
+
+# market data snapshot of gold.stocks_ml_ready (rebuilt with --refresh-data)
+data_cache: dataplatform/cache/stocks_ml_ready.parquet
+dataplatform_root: dataplatform
+
+# Fama-French region of the risk-free rate (null: no interest on cash)
+risk_free_region: north_america
+
+# backtest defaults (costs are not overridable from the command line)
+initial_cash: 10000
+commission_bps: 5
+slippage_bps: 5
+max_leverage: 1.0
+
+# append-only log of every evaluation (multiple-testing accounting)
+experiment_log: dataplatform/experiments/evaluations.jsonl
+
+mlflow_experiment: strategy-evaluation
