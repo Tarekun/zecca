@@ -8,6 +8,10 @@ from analysis.framework.periods import Period, period_key
 
 DATE_COL = "timeframe"
 SYMBOL_COL = "symbol"
+# optional boolean column of the market data: is the symbol investable that
+# day (e.g. an index member as of that date)? Without it, every symbol with
+# data on a day is investable on that day.
+UNIVERSE_COL = "in_universe"
 
 
 class Panel:
@@ -126,11 +130,19 @@ class MarketView:
         return self._read(self._signals, columns, lookback)
 
     def universe(self) -> list[str]:
-        """Symbols investable today, i.e. those with market data for today.
+        """Symbols investable today. If the market data has an `in_universe`
+        column (point-in-time membership, e.g. index constituents as of each
+        day), the symbols flagged true today; otherwise every symbol with
+        market data today. Target weights on other symbols are rejected, so
+        rank and pick within this list.
 
-        This is not yet point-in-time with respect to delistings and index
-        membership: the dataset itself suffers from survivorship bias."""
-        return self.today([])[SYMBOL_COL].to_list()
+        Point-in-time membership is only as good as the data: symbols that
+        stopped trading before the data was collected are usually missing
+        altogether (survivorship bias, see `analysis.framework.survivorship`)."""
+        if UNIVERSE_COL not in self._market.columns:
+            return self.today([])[SYMBOL_COL].to_list()
+        today = self.today([UNIVERSE_COL])
+        return today.filter(pl.col(UNIVERSE_COL).fill_null(False))[SYMBOL_COL].to_list()
 
     def is_first_trading_day_of(self, period: Period) -> bool:
         """True on the first trading day of a new week/month/quarter/year

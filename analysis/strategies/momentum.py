@@ -49,7 +49,10 @@ class TopNMomentum(Strategy):
             return None
         ranked = (
             market.signals(["momentum"])
-            .filter(pl.col("momentum").is_finite())
+            .filter(
+                pl.col("momentum").is_finite()
+                & pl.col("symbol").is_in(market.universe())
+            )
             .top_k(self.top_n, by="momentum")
         )
         # before enough history exists nothing is ranked: stay in cash
