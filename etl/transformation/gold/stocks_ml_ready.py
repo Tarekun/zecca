@@ -7,6 +7,7 @@ from etl.transformation.gold import StocksDailyGold
 from etl.transformation.silver import GoodSymbolsSilver, SymbolEmbeddingsSilver
 from etl.transformation.silver.symbol_embeddings import DEFAULT_EMBEDDING_SIZE
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import with_root
 from etl.transformation.quality_checks import (
     comparison,
     in_range,
@@ -71,7 +72,9 @@ class StocksMlReadyGold(Model):
                 *[in_range(c, 0, 100) for c in RSI_COLUMNS],
                 freshness("timeframe", timedelta(days=3)),
                 list_length("embedding", DEFAULT_EMBEDDING_SIZE),
-                test_symbols_are_restricted_to_good_symbols,
+                with_root(
+                    test_symbols_are_restricted_to_good_symbols, dataplatform_root
+                ),
             ],
             dataplatform_root=dataplatform_root,
             kind="view",
@@ -178,10 +181,14 @@ def append_future_returns(
     return labeler
 
 
-def test_symbols_are_restricted_to_good_symbols(lf: pl.LazyFrame) -> pl.LazyFrame:
+def test_symbols_are_restricted_to_good_symbols(
+    lf: pl.LazyFrame, dataplatform_root: str
+) -> pl.LazyFrame:
     """Every (symbol, timeframe) pair must be present in silver.good_symbols:
     the inner join must not let any other symbol through."""
-    good_symbols = GoodSymbolsSilver().read_from_disk()
+    good_symbols = GoodSymbolsSilver(
+        dataplatform_root=dataplatform_root
+    ).read_from_disk()
 
     orphans = (
         lf.select(["symbol", "timeframe"])

@@ -6,6 +6,7 @@ from scipy.linalg import orthogonal_procrustes
 from sklearn.decomposition import TruncatedSVD
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import with_root
 from etl.transformation.quality_checks import not_empty, not_null, unique
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 from etl.transformation.silver.good_symbols import GoodSymbolsSilver
@@ -205,7 +206,7 @@ class SymbolEmbeddingsSilver(Model):
                 unique(["not_before", "symbol"]),
                 test_well_known_symbols_always_present,
                 test_well_known_symbols_stable_across_partitions,
-                test_no_symbol_missing_from_good_symbols,
+                with_root(test_no_symbol_missing_from_good_symbols, dataplatform_root),
             ],
             dataplatform_root=dataplatform_root,
         )
@@ -319,7 +320,9 @@ def test_well_known_symbols_stable_across_partitions(
     return pl.DataFrame(violations)
 
 
-def test_no_symbol_missing_from_good_symbols(lf: pl.LazyFrame) -> pl.LazyFrame:
+def test_no_symbol_missing_from_good_symbols(
+    lf: pl.LazyFrame, dataplatform_root: str
+) -> pl.LazyFrame:
     """Every symbol present in silver.good_symbols must appear in at least one
     symbol_embeddings partition. A symbol missing entirely (rather than just
     before some not_before date) can never be matched by a downstream as-of
@@ -329,7 +332,12 @@ def test_no_symbol_missing_from_good_symbols(lf: pl.LazyFrame) -> pl.LazyFrame:
     dataplatform/test_outputs/symbol_embeddings_missing_good_symbols.csv for
     inspection.
     """
-    good_symbols = GoodSymbolsSilver().read_from_disk().select("symbol").unique()
+    good_symbols = (
+        GoodSymbolsSilver(dataplatform_root=dataplatform_root)
+        .read_from_disk()
+        .select("symbol")
+        .unique()
+    )
     embedded_symbols = lf.select("symbol").unique()
 
     missing = good_symbols.join(embedded_symbols, on="symbol", how="anti")

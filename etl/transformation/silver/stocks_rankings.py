@@ -13,7 +13,7 @@ from etl.transformation.silver.stocks_daily import StocksDailySilver
 from etl.transformation.silver.candles_daily import CandlesDailySilver
 
 
-def compute_from_source() -> pl.LazyFrame:
+def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
     """Read stocks_daily and produce a per-date ranking of stocks by
     float-adjusted market cap.
 
@@ -30,7 +30,7 @@ def compute_from_source() -> pl.LazyFrame:
         - ``float_adjusted_market_cap_rank``  – 1-based rank within the date (1 = largest)
     """
     return (
-        StocksDailySilver()
+        StocksDailySilver(dataplatform_root=dataplatform_root)
         .read_from_disk()
         .select(["timeframe", "symbol", "float_adjusted_market_cap"])
         .filter(
@@ -57,10 +57,15 @@ class StocksRankingsSilver(Model):
                 not_null(["timeframe", "symbol", "float_adjusted_market_cap_rank"]),
                 unique(["timeframe", "symbol"]),
                 in_range("float_adjusted_market_cap_rank", min_value=1),
-                foreign_key(["timeframe", "symbol"], target_model=CandlesDailySilver),
+                foreign_key(
+                    ["timeframe", "symbol"],
+                    target_model=CandlesDailySilver(
+                        dataplatform_root=dataplatform_root
+                    ),
+                ),
             ],
             dataplatform_root=dataplatform_root,
         )
 
     def _build(self) -> pl.LazyFrame:
-        return compute_from_source()
+        return compute_from_source(self.dataplatform_root)

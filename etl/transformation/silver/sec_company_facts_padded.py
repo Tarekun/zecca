@@ -1,6 +1,7 @@
 from datetime import date
 import polars as pl
 
+from etl.transformation.quality_checks import with_root
 from etl.transformation.quality_checks import (
     column_comparison,
     no_gaps,
@@ -61,7 +62,7 @@ def _pad_series(
     )
 
 
-def compute_from_source() -> pl.LazyFrame:
+def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
     """Read sec_company_facts from the silver layer and expand to one row per
     (cik, reference_date), padding each metric's time series independently.
 
@@ -98,7 +99,7 @@ def compute_from_source() -> pl.LazyFrame:
 
     today = date.today()
     lf = (
-        SecCompanyFactsSilver()
+        SecCompanyFactsSilver(dataplatform_root=dataplatform_root)
         .read_from_disk()
         .filter(pl.col("cik").is_not_null())
         .drop("source_file")
@@ -202,17 +203,20 @@ class SecCompanyFactsPaddedSilver(Model):
                 unique(["cik", "reference_date"]),
                 column_comparison("reference_date", ">=", "last_filed"),
                 no_gaps("reference_date", group_by="cik"),
-                test_every_filing_filed_date_present_as_reference_date,
+                with_root(
+                    test_every_filing_filed_date_present_as_reference_date,
+                    dataplatform_root,
+                ),
             ],
             dataplatform_root=dataplatform_root,
         )
 
     def _build(self) -> pl.LazyFrame:
-        return compute_from_source()
+        return compute_from_source(self.dataplatform_root)
 
 
 def test_every_filing_filed_date_present_as_reference_date(
-    lf: pl.LazyFrame,
+    lf: pl.LazyFrame, dataplatform_root: str
 ) -> pl.LazyFrame:
     """Every (cik, filed_date) pair for each metric in sec_company_facts must
     appear as a (cik, reference_date) row in sec_company_facts_padded — padding
@@ -226,7 +230,9 @@ def test_every_filing_filed_date_present_as_reference_date(
     """
 
     reference_dates = lf.select(["cik", "reference_date"]).unique()
-    facts_lf = SecCompanyFactsSilver().read_from_disk()
+    facts_lf = SecCompanyFactsSilver(
+        dataplatform_root=dataplatform_root
+    ).read_from_disk()
 
     missing_frames = []
     for filed_col in [

@@ -21,7 +21,7 @@ class Sp500ApproximatedGold(Model):
     def _build(self) -> pl.LazyFrame:
         logger.debug("Using source: StocksRankingsSilver")
         return (
-            StocksRankingsSilver()
+            StocksRankingsSilver(dataplatform_root=self.dataplatform_root)
             .read_from_disk()
             .filter(pl.col("float_adjusted_market_cap_rank") <= _TOP_N)
             .sort(["timeframe", "float_adjusted_market_cap_rank"])

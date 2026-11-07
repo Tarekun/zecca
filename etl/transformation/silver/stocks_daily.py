@@ -2,6 +2,7 @@ from datetime import timedelta
 import polars as pl
 
 from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
+from etl.transformation.quality_checks import with_root
 from etl.transformation.quality_checks import (
     foreign_key,
     freshness,
@@ -27,17 +28,24 @@ class StocksDailySilver(Model):
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
                 freshness("timeframe", timedelta(days=3)),
-                foreign_key(["timeframe", "symbol"], target_model=CandlesDailySilver),
+                foreign_key(
+                    ["timeframe", "symbol"],
+                    target_model=CandlesDailySilver(
+                        dataplatform_root=dataplatform_root
+                    ),
+                ),
                 is_finite(["price_to_earnings", "earnings_per_share"]),
-                test_all_candles_pairs_present,
+                with_root(test_all_candles_pairs_present, dataplatform_root),
             ],
             dataplatform_root=dataplatform_root,
         )
 
     def _build(self) -> pl.LazyFrame:
-        candles = CandlesDailySilver().read_from_disk()
+        candles = CandlesDailySilver(
+            dataplatform_root=self.dataplatform_root
+        ).read_from_disk()
         sec = (
-            SecCompanyFactsPaddedSilver()
+            SecCompanyFactsPaddedSilver(dataplatform_root=self.dataplatform_root)
             .read_from_disk()
             .select(
                 [
@@ -75,11 +83,16 @@ class StocksDailySilver(Model):
         )
 
 
-def test_all_candles_pairs_present(lf: pl.LazyFrame) -> pl.LazyFrame:
+def test_all_candles_pairs_present(
+    lf: pl.LazyFrame, dataplatform_root: str
+) -> pl.LazyFrame:
     """Every (symbol, timeframe) pair from candles_daily must appear in stocks_daily"""
 
     candles_pairs = (
-        CandlesDailySilver().read_from_disk().select(["symbol", "timeframe"]).unique()
+        CandlesDailySilver(dataplatform_root=dataplatform_root)
+        .read_from_disk()
+        .select(["symbol", "timeframe"])
+        .unique()
     )
     stocks_pairs = lf.select(["symbol", "timeframe"]).unique()
 
