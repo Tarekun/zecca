@@ -219,6 +219,38 @@ class TestInvalidInput:
         assert report["status"] == "error" and message in report["error"]
 
 
+class TestSurvivorshipAndUniverse:
+    def test_unmeasurable_survivorship_is_still_warned(self, capsys, config):
+        # the synthetic setup has no unfiltered prices to measure
+        _, report = run(capsys, config, "run", PICK, "--no-mlflow")
+        assert report["data"]["survivorship"] is None
+        assert any("could not be measured" in w for w in report["warnings"])
+
+    def test_measured_survivorship_reaches_the_report(self, capsys, config, tmp_path):
+        measured = {"survivors_only": True, "warnings": ["survivorship bias: measured"]}
+        (tmp_path / "cache.meta.json").write_text(
+            json.dumps({"survivorship": measured})
+        )
+        _, report = run(capsys, config, "run", PICK, "--no-mlflow")
+        assert report["data"]["survivorship"] == measured
+        assert "survivorship bias: measured" in report["warnings"]
+
+    def test_universe_column_in_the_cache_is_enforced(self, capsys, config, tmp_path):
+        cache = tmp_path / "cache.parquet"
+        data = pl.read_parquet(cache).with_columns(
+            (pl.col("symbol") != "C").alias("in_universe")
+        )
+        data.write_parquet(cache)
+        code, report = run(
+            capsys, config, "run", PICK, "--no-mlflow", "--params", '{"symbol": "C"}'
+        )
+        assert code == cli.EXIT_INVALID and "universe" in report["error"]
+        code, _ = run(
+            capsys, config, "run", PICK, "--no-mlflow", "--params", '{"symbol": "A"}'
+        )
+        assert code == 0
+
+
 class TestListAndHistory:
     def test_list_finds_the_package_strategies(self, capsys, config):
         code, listing = run(capsys, config, "list")

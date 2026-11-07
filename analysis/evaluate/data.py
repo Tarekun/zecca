@@ -15,7 +15,13 @@ from typing import Any
 import polars as pl
 
 from analysis.evaluate.config import EvaluationConfig
-from analysis.framework import DATE_COL, SYMBOL_COL, load_risk_free
+from analysis.framework import (
+    DATE_COL,
+    SYMBOL_COL,
+    UNIVERSE_COL,
+    diagnose,
+    load_risk_free,
+)
 
 BASE_COLUMNS = [DATE_COL, SYMBOL_COL, "open", "high", "low", "close", "volume"]
 
@@ -54,15 +60,41 @@ def build_cache(config: EvaluationConfig) -> dict[str, Any]:
         "first_day": df[DATE_COL].min().isoformat(),  # type: ignore[union-attr]
         "last_day": df[DATE_COL].max().isoformat(),  # type: ignore[union-attr]
     }
+    meta["survivorship"] = measure_survivorship(config)
     _meta_path(config.data_cache).write_text(json.dumps(meta, indent=2))
     return meta
+
+
+def measure_survivorship(config: EvaluationConfig) -> dict[str, Any] | None:
+    """Survivorship diagnostics of the *unfiltered* prices
+    (`silver.candles_daily`): the cached dataset is filtered to the top
+    symbols by market cap, where symbols also disappear by leaving the
+    filter. None if the prices can't be read."""
+    from etl.transformation.silver import CandlesDailySilver
+
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            prices = (
+                CandlesDailySilver(dataplatform_root=str(config.dataplatform_root))
+                .read_from_disk()
+                .select(DATE_COL, SYMBOL_COL, "close")
+                .collect()
+            )
+        return {"measured_on": "silver.candles_daily", **diagnose(prices).to_dict()}
+    except Exception as exc:
+        print(f"survivorship diagnostics unavailable: {exc}", file=sys.stderr)
+        return None
 
 
 def cache_meta(config: EvaluationConfig, refresh: bool = False) -> dict[str, Any]:
     if refresh or not config.data_cache.exists():
         return build_cache(config)
     meta_file = _meta_path(config.data_cache)
-    return json.loads(meta_file.read_text()) if meta_file.exists() else {}
+    meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
+    if "survivorship" not in meta:  # caches built before the diagnostics existed
+        meta["survivorship"] = measure_survivorship(config)
+        meta_file.write_text(json.dumps(meta, indent=2))
+    return meta
 
 
 def load_market(
@@ -71,7 +103,9 @@ def load_market(
     """Columns `BASE_COLUMNS + columns` for days before `end` (exclusive)."""
     lf = pl.scan_parquet(config.data_cache)
     available = lf.collect_schema().names()
-    wanted = list(dict.fromkeys(BASE_COLUMNS + columns))
+    # point-in-time universe membership travels with the prices when present
+    universe = [UNIVERSE_COL] if UNIVERSE_COL in available else []
+    wanted = list(dict.fromkeys(BASE_COLUMNS + universe + columns))
     missing = [c for c in wanted if c not in available]
     if missing:
         raise DataError(f"Unknown data column(s) {missing}; available: {available}")
