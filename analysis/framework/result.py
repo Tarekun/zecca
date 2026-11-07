@@ -4,6 +4,7 @@ from typing import Any, Mapping
 import polars as pl
 
 from analysis.framework.costs import BpsCostModel, CostModel
+from analysis.framework.portfolio import PortfolioState
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,8 @@ class BacktestResult:
 
     - `equity`: one row per trading day, valued at the close: `timeframe`,
       `portfolio_value`, `cash`, `invested`, `exposure` (invested / value),
-      `interest` (earned (+) or paid (-) on cash that day).
+      `interest` (earned (+) or paid (-) on cash that day), `risk_free`
+      (the daily risk-free return applied that day).
     - `trades`: every execution: `timeframe`, `symbol`, `side`, `quantity`,
       `quote` (open price), `price` (after slippage), `notional`,
       `commission`, `slippage` (cost of slippage in cash), `reason`
@@ -66,6 +68,10 @@ class BacktestResult:
       cash appears as a single row with a null symbol.
     - `events`: anything the engine had to work around: `timeframe`,
       `symbol`, `kind`, `detail`.
+
+    `initial_value` is the net worth the simulation started from and
+    `final_state` the portfolio at the last close (the starting point of the
+    next walk-forward fold).
     """
 
     strategy: str
@@ -76,6 +82,8 @@ class BacktestResult:
     positions: pl.DataFrame
     decisions: pl.DataFrame
     events: pl.DataFrame
+    initial_value: float
+    final_state: PortfolioState
 
     @property
     def final_value(self) -> float:
@@ -83,4 +91,4 @@ class BacktestResult:
 
     @property
     def total_return(self) -> float:
-        return self.final_value / self.config.initial_cash - 1
+        return self.final_value / self.initial_value - 1

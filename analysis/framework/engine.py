@@ -1,5 +1,6 @@
 import logging
 import math
+from bisect import bisect_left
 from datetime import date, timedelta
 from typing import Iterable, Mapping
 
@@ -47,6 +48,7 @@ _EQUITY_SCHEMA = {
     "invested": pl.Float64,
     "exposure": pl.Float64,
     "interest": pl.Float64,
+    "risk_free": pl.Float64,
 }
 _DECISIONS_SCHEMA = {DATE_COL: pl.Date, SYMBOL_COL: pl.String, "weight": pl.Float64}
 _EVENTS_SCHEMA = {
@@ -59,9 +61,11 @@ _EVENTS_SCHEMA = {
 
 def run_backtest(
     strategy: Strategy,
-    data: pl.DataFrame | pl.LazyFrame,
+    data: pl.DataFrame | pl.LazyFrame | Panel,
     config: BacktestConfig = BacktestConfig(),
     risk_free: pl.DataFrame | None = None,
+    start: date | None = None,
+    initial: PortfolioState | None = None,
 ) -> BacktestResult:
     """Simulates `strategy` day by day over `data`.
 
@@ -71,6 +75,13 @@ def run_backtest(
     `(timeframe, rf)` frame of daily decimal returns (see
     `data.load_risk_free`); without it cash earns and borrowing costs nothing
     but the spread.
+
+    `start` makes everything before it warmup history: visible to `prepare`
+    and `MarketView.history`, but not traded. The strategy is asked to
+    decide at the close of the last trading day before `start`, so trading
+    can begin at the open of the first trading day >= `start`. `initial`
+    starts the simulation from an existing portfolio instead of
+    `config.initial_cash` (used to chain walk-forward folds).
 
     Timeline of every trading day t:
     1. open: the target weights decided at the close of t-1 are executed at
@@ -83,33 +94,47 @@ def run_backtest(
        new target weights, executed at the open of t+1 (a decision on the
        last day is never executed, so it isn't requested).
     """
-    df = data.collect() if isinstance(data, pl.LazyFrame) else data
-    missing = [c for c in ("open", "close") if c not in df.columns]
+    if isinstance(data, Panel):
+        market = data
+    else:
+        market = Panel(data.collect() if isinstance(data, pl.LazyFrame) else data)
+    missing = [c for c in ("open", "close") if c not in market.columns]
     if missing:
         raise ValueError(f"Market data is missing required column(s) {missing}")
-
-    market = Panel(df)
     if not market.dates:
         raise ValueError("Market data is empty")
-    signals = build_signals(strategy, df)
-    rates = _align_risk_free(risk_free, market.dates)
 
-    sim = _Simulation(config)
+    first = 0 if start is None else bisect_left(market.dates, start)
+    if first == len(market.dates):
+        raise ValueError(f"No trading days on or after start {start}")
+
+    signals = build_signals(strategy, market.frame)
+    rates = _align_risk_free(risk_free, market.dates)
+    sim = _Simulation(config, initial)
+
+    def decide(day: date) -> None:
+        view = MarketView(market, day, signals)
+        weights = strategy.decide(view, sim.portfolio_state(day))
+        if weights is not None:
+            sim.set_target(day, _as_target(weights), view.universe())
+
+    if first > 0:
+        decide(market.dates[first - 1])
     last = len(market.dates) - 1
-    for i, day in enumerate(market.dates):
+    for i in range(first, last + 1):
+        day = market.dates[i]
         today = market.between(day, day)
         sim.open(day, today)
         sim.close(day, today, rates[i])
         if i < last:
-            view = MarketView(market, day, signals)
-            weights = strategy.decide(view, sim.portfolio_state(day))
-            if weights is not None:
-                sim.set_target(day, _as_target(weights), view.universe())
+            decide(day)
 
     return BacktestResult(
         strategy=strategy.name,
         params=dict(strategy.params),
         config=config,
+        initial_value=sim.initial_value,
+        final_state=sim.portfolio_state(market.dates[last]),
         **sim.tables(),
     )
 
@@ -178,13 +203,16 @@ def _quotes(
 class _Simulation:
     """Mutable portfolio state plus the records that become `BacktestResult`."""
 
-    def __init__(self, config: BacktestConfig) -> None:
+    def __init__(self, config: BacktestConfig, initial: PortfolioState | None) -> None:
         self.config = config
         self.costs: CostModel = config.costs
-        self.cash = config.initial_cash
-        self.positions: dict[str, float] = {}
-        self.last_price: dict[str, float] = {}
-        self.stale_days: dict[str, int] = {}
+        if initial is None:
+            initial = PortfolioState.empty(date.min, config.initial_cash)
+        self.initial_value = initial.net_worth
+        self.cash = initial.cash
+        self.positions: dict[str, float] = dict(initial.positions)
+        self.last_price: dict[str, float] = dict(initial.prices)
+        self.stale_days: dict[str, int] = {s: 0 for s in self.positions}
         self.pending_target: TargetWeights | None = None
         self.pending_exits: set[str] = set()
         self._priced_today: set[str] = set()
@@ -229,7 +257,7 @@ class _Simulation:
         invested = self._invested()
         value = self.cash + invested
         exposure = invested / value if value > 0 else math.nan
-        self.equity.append((day, value, self.cash, invested, exposure, interest))
+        self.equity.append((day, value, self.cash, invested, exposure, interest, rate))
         for symbol, qty in sorted(self.positions.items()):
             price = self.last_price[symbol]
             weight = qty * price / value if value > 0 else math.nan

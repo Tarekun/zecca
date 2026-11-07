@@ -33,10 +33,14 @@ class Panel:
             raise ValueError(
                 f"Columns {DATE_COL!r} and {SYMBOL_COL!r} must not contain nulls"
             )
-        if df.select(pl.struct(DATE_COL, SYMBOL_COL).is_duplicated().any()).item():
+        self._df = df.sort([DATE_COL, SYMBOL_COL])
+        # once sorted, duplicate keys are adjacent rows
+        same_as_previous = (pl.col(DATE_COL) == pl.col(DATE_COL).shift(1)) & (
+            pl.col(SYMBOL_COL) == pl.col(SYMBOL_COL).shift(1)
+        )
+        if self._df.select(same_as_previous.any()).item():
             raise ValueError(f"Panel has duplicate ({DATE_COL}, {SYMBOL_COL}) rows")
 
-        self._df = df.sort([DATE_COL, SYMBOL_COL])
         self.dates: list[date] = (
             self._df[DATE_COL].unique(maintain_order=True).to_list()
         )
@@ -45,6 +49,11 @@ class Panel:
         )
         # _offsets[i] is the first row of dates[i]; the extra last entry closes the final day
         self._offsets: list[int] = starts.to_list() + [self._df.height]
+
+    @property
+    def frame(self) -> pl.DataFrame:
+        """The whole panel, validated and sorted by (timeframe, symbol)."""
+        return self._df
 
     @property
     def columns(self) -> list[str]:
