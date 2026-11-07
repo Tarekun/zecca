@@ -189,7 +189,7 @@ def _run(config: EvaluationConfig, args: argparse.Namespace) -> int:
         report["window"]["first_evaluated_day"] = _iso(result.equity[DATE_COL].min())
         report["window"]["last_day"] = _iso(result.equity[DATE_COL].max())
         report["activity"] = _activity(result)
-        report["warnings"] = _warnings(result)
+        report["warnings"] = _warnings(result, meta.get("survivorship"))
 
     report["mlflow_run_id"] = None
     if result is not None and not args.no_mlflow:
@@ -295,7 +295,7 @@ def _activity(result: BacktestResult) -> dict[str, Any]:
     }
 
 
-def _warnings(result: BacktestResult) -> list[str]:
+def _warnings(result: BacktestResult, survivorship: dict[str, Any] | None) -> list[str]:
     values = result.equity["portfolio_value"]
     returns = (values / values.shift(1) - 1).fill_null(0.0)
     extreme = result.equity.filter((returns.abs() > EXTREME_DAILY_RETURN).to_list())
@@ -308,10 +308,13 @@ def _warnings(result: BacktestResult) -> list[str]:
             "most likely bad price data (stale or unadjusted quotes), not skill; "
             "inspect the positions held on those days"
         )
-    warnings.append(
-        "the symbol universe is not point-in-time: delisted companies are mostly "
-        "missing from the data (survivorship bias inflates results)"
-    )
+    if survivorship is not None:
+        warnings += survivorship["warnings"]
+    else:
+        warnings.append(
+            "survivorship bias could not be measured (unfiltered prices unavailable); "
+            "assume delisted companies are missing and results are optimistic"
+        )
     return warnings
 
 

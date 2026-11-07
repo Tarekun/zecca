@@ -85,7 +85,7 @@ The framework enforces what it can. These rules hold either way:
 5. **Don't hard-code dates, symbols or events** that you know about from the data or from hindsight.
 6. **Be suspicious of great results.**
    - The data contains stale and unadjusted prices: some stocks jump 50–100× in a day. The report warns about portfolio days that moved more than 25%.
-   - The universe has survivorship bias.
+   - The universe has survivorship bias: the price data contains only today's survivors. See [survivorship.md](survivorship.md).
    - Before trusting a result, inspect what drove it.
 
 ## Evaluating
@@ -139,13 +139,13 @@ stdout carries exactly one JSON document, and logs go to stderr. Exit codes:
 | `strategy` | `name`, `reference` (`module:Class`), `code_hash` (of the strategy file), `params` (resolved, defaults included). |
 | `protocol`, `protocol_args` | Protocol and its settings (leverage, walk-forward windows, grid, objective). |
 | `window` | Requested `start`/`end`, the `holdout` flag and `holdout_start`, then `first_evaluated_day` and `last_day` actually simulated. |
-| `data` | Snapshot info (`created_at`, rows, symbols, date range) and `symbols_loaded`. |
+| `data` | Snapshot info (`created_at`, rows, symbols, date range), `symbols_loaded`, and `survivorship`: diagnostics measured on the unfiltered prices (see [survivorship.md](survivorship.md)), or null if they couldn't be measured. |
 | `git` | `commit` and `dirty` flag of the repo. |
 | `guardrails.lookahead` | `passed`, `cutoffs`, `failures`. |
 | `metrics` | `total_return`, `cagr`, `volatility`, `sharpe` (annualized, over the risk-free rate), `max_drawdown`. Walk-forward adds `oos_score`, `mean_train_score`, `mean_test_score` and `is_oos_gap`: in-sample minus out-of-sample score, where a large gap means overfitting. |
 | `walk_forward` | Walk-forward only: `candidates_per_fold`, and `folds` with windows, chosen `params`, `train_score` and `test_score`. |
 | `activity` | `trades`, `costs_paid`, `average_exposure`, and `events` counted by kind (`delisting`, `exit_deferred`, `buy_skipped`, `rebalance_skipped`, `buys_scaled`). |
-| `warnings` | Data caveats to read before trusting the numbers. |
+| `warnings` | Data caveats to read before trusting the numbers: extreme portfolio days, and the measured survivorship bias. |
 | `mlflow_run_id` | Or null with `--no-mlflow`. If tracking failed, `mlflow_error` explains why; the evaluation itself is unaffected. |
 | `experiment_log` | `evaluations_of_strategy` and `variants_tested`, including this run. |
 | `elapsed_seconds` | |
