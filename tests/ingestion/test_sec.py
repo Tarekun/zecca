@@ -10,12 +10,14 @@ sys.path.append(str(Path(__file__).parents[2]))
 import pytest
 
 from etl.ingestion.sec import (
+    SecFilingTextTickers,
     SecFullIndex,
     SecXbrlCoverPages,
     SecXbrlFilings,
     parse_master_index,
     parse_notes_dataset,
     parse_xbrl_rss,
+    extract_symbols,
 )
 
 MASTER_IDX = """Description:           Master Index of EDGAR Dissemination Feed
@@ -313,3 +315,72 @@ def test_xbrl_filings_rerun_only_downloads_open_months(tmp_path):
     stored = source.read_from_disk().collect()
     assert stored.select("year", "month").unique().height == 4
     assert stored.filter(pl.col("month") == 6).height == 1
+
+
+# --- symbols in annual reports ---
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        (
+            "<p>Our common stock is traded on the New York Stock Exchange under"
+            " the symbol &#147;HWK.&#148;</p>",
+            {"HWK": 1},
+        ),
+        ("Microtune, Inc. (NASDAQ: TUNE) today announced", {"TUNE": 1}),
+        ("listed under the trading symbol: PINN", {"PINN": 1}),
+        ("Class B shares trade under the symbol BRK.B", {"BRK-B": 1}),
+        ("quoted on the OTC Bulletin Board under the symbol TVOC.OB", {"TVOC": 1}),
+        # a SPAC's units and warrants are not the company's shares
+        ("units trade under the symbol BPW.U and warrants under the symbol BPW.WS", {}),
+        ("is listed on the NYSE under the symbol NYSE", {}),
+    ],
+)
+def test_extract_symbols(text, expected):
+    # overlapping patterns may count a mention more than once
+    assert set(extract_symbols(text)) == set(expected)
+
+
+class _OfflineTextTickers(SecFilingTextTickers):
+    """Two companies with two annual reports each: company 1 names its
+    symbol only in the older report, company 2 in none."""
+
+    REPORTS = {
+        "1-new": "Item 5. Market for the registrant's common equity: none.",
+        "1-old": "traded on the Nasdaq Global Market under the symbol ABCD",
+        "2-new": "no symbol here",
+        "2-old": "nor here",
+    }
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.downloaded: list[str] = []
+
+    def targets(self):
+        return pl.DataFrame(
+            {
+                "cik": [1, 1, 2, 2],
+                "accession_number": ["1-new", "1-old", "2-new", "2-old"],
+                "form_type": ["10-K"] * 4,
+                "date_filed": [date(2010, 3, 1), date(2009, 3, 1)] * 2,
+                "filename": ["1-new", "1-old", "2-new", "2-old"],
+            }
+        )
+
+    def load_report(self, filename):
+        self.downloaded.append(filename)
+        return extract_symbols(self.REPORTS[filename])
+
+
+def test_text_tickers_read_older_report_only_when_needed_and_never_twice(tmp_path):
+    source = _OfflineTextTickers(dataplatform_root=str(tmp_path))
+    source.ingest(today=date(2026, 11, 7))
+    assert source.downloaded == ["1-new", "1-old", "2-new", "2-old"]
+
+    stored = source.read_from_disk().collect().sort("accession_number")
+    assert stored.filter(pl.col("symbol").is_not_null())["symbol"].to_list() == ["ABCD"]
+
+    source.downloaded.clear()
+    source.ingest(today=date(2026, 11, 8))
+    assert source.downloaded == []

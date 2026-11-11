@@ -41,7 +41,13 @@ SNAPSHOT = date(2026, 11, 7)
     HOLDING,
     UTILITY,
     DELISTED_THEN_REPORTED,
-) = range(10, 30)
+    PRE_XBRL,
+    PET_DRX,
+    DECKERS,
+    LEGACY,
+    BERKSHIRE,
+    DSW,
+) = range(10, 36)
 
 
 def _quarterly(start: date, end: date) -> list[date]:
@@ -55,6 +61,10 @@ def _quarterly(start: date, end: date) -> list[date]:
 class _Inputs:
     def __init__(self):
         self.filings, self.cover, self.xbrl, self.current = [], [], [], []
+        self.text = []
+
+    def text_symbol(self, cik, day, symbol):
+        self.text.append({"cik": cik, "date_filed": day, "symbol": symbol})
 
     def reports(self, cik, name, days, form="10-Q", accession=None):
         self.filings += [
@@ -141,6 +151,10 @@ class _Inputs:
             current,
             SNAPSHOT,
             xbrl_filings=pl.DataFrame(self.xbrl).lazy(),
+            text_tickers=pl.DataFrame(
+                self.text,
+                schema={"cik": pl.Int64, "date_filed": pl.Date, "symbol": pl.String},
+            ).lazy(),
         )
 
 
@@ -275,6 +289,55 @@ def master() -> pl.DataFrame:
     i.reports(DELISTED_THEN_REPORTED, "ALLIS CHALMERS ENERGY INC", [date(2011, 9, 2)])
     i.files(DELISTED_THEN_REPORTED, [date(2011, 9, 2)], "aly")
 
+    # gone in 2010, before XBRL: its last 10-K names its symbol
+    pre_xbrl = _quarterly(date(2002, 3, 1), date(2010, 3, 1))
+    i.reports(PRE_XBRL, "MICROTUNE INC", pre_xbrl)
+    i.form(PRE_XBRL, "MICROTUNE INC", "25-NSE", date(2010, 12, 6))
+    i.text_symbol(PRE_XBRL, pre_xbrl[-4], "TUNE")
+    # a 10-K naming another company's symbol, which that company's own
+    # XBRL files show at the same time
+    pet = _quarterly(date(2008, 3, 1), date(2010, 3, 1))
+    i.reports(PET_DRX, "PET DRX CORP", pet)
+    i.text_symbol(PET_DRX, pet[-4], "DECK")
+    deckers = _quarterly(date(2005, 3, 1), date(2026, 8, 1))
+    i.reports(DECKERS, "DECKERS OUTDOOR CORP", deckers)
+    i.equity(DECKERS, "DECKERS", range(2005, 2027))
+    i.files(DECKERS, [d for d in deckers if d.year >= 2009], "deck")
+
+    # acquired in 2011: its last 10-K names the acquirer, whose own
+    # observations only start after the acquisition
+    legacy = _quarterly(date(2005, 3, 1), date(2011, 3, 16))
+    i.reports(LEGACY, "LEGACY BANCORP INC", legacy)
+    i.form(LEGACY, "LEGACY BANCORP INC", "25-NSE", date(2011, 7, 20))
+    i.text_symbol(LEGACY, legacy[-1], "BHLB")
+    berkshire = _quarterly(date(2000, 3, 1), date(2026, 8, 1))
+    i.reports(BERKSHIRE, "BERKSHIRE HILLS BANCORP INC", berkshire)
+    i.declares(BERKSHIRE, [d for d in berkshire if d >= date(2011, 8, 9)], "BHLB")
+    i.current.append(
+        {
+            "cik": BERKSHIRE,
+            "ticker": "BHLB",
+            "company_name": "Berkshire",
+            "exchange": "NYSE",
+        }
+    )
+
+    # DSW, renamed Designer Brands (DBI) in 2019, kept naming its files `dsw`
+    dsw = _quarterly(date(2005, 6, 1), date(2026, 8, 1))
+    i.reports(DSW, "DSW Inc.", [d for d in dsw if d < date(2019, 4, 1)])
+    i.reports(DSW, "Designer Brands Inc.", [d for d in dsw if d >= date(2019, 4, 1)])
+    i.equity(DSW, "DSW", range(2005, 2027))
+    i.files(DSW, [d for d in dsw if d.year >= 2009], "dsw")
+    i.declares(DSW, [d for d in dsw if d >= date(2019, 6, 1)], "DBI", "NYSE")
+    i.current.append(
+        {
+            "cik": DSW,
+            "ticker": "DBI",
+            "company_name": "Designer Brands",
+            "exchange": "NYSE",
+        }
+    )
+
     # deregistered, then filed its final annual report
     i.form(TRAILING_REPORT, "SMITHKLINE BEECHAM CORP", "15-15D", date(1996, 7, 31))
     i.reports(TRAILING_REPORT, "SMITHKLINE BEECHAM CORP", [date(1997, 3, 31)], "10-K")
@@ -364,6 +427,30 @@ def test_report_filed_after_the_delisting_still_shows_the_ticker(master):
         ticker_to_cik("ALY", date(2011, 2, 23), master=master) == DELISTED_THEN_REPORTED
     )
     assert ticker_to_cik("ALY", date(2011, 6, 1), master=master) is None
+
+
+def test_symbol_named_in_the_last_annual_report_before_xbrl(master):
+    tune = _rows(master, PRE_XBRL, "TUNE")
+
+    assert ticker_to_cik("TUNE", date(2006, 6, 1), master=master) == PRE_XBRL
+    assert set(tune["source"]) == {"filing_text", "backfill"}
+    assert tune["valid_to"].max() == date(2010, 12, 6)
+
+
+def test_text_symbol_of_another_listed_company_is_dropped(master):
+    assert _rows(master, PET_DRX)["ticker"].is_null().all()
+    assert ticker_to_cik("DECK", date(2009, 6, 1), master=master) == DECKERS
+
+
+def test_text_symbol_of_the_acquirer_is_dropped(master):
+    assert _rows(master, LEGACY)["ticker"].is_null().all()
+    assert ticker_to_cik("BHLB", date(2011, 5, 2), master=master) == BERKSHIRE
+
+
+def test_prefix_contradicted_after_a_rename_still_counts_before_it(master):
+    assert ticker_to_cik("DSW", date(2015, 6, 1), master=master) == DSW
+    assert ticker_to_cik("DBI", date(2021, 6, 1), master=master) == DSW
+    assert ticker_to_cik("DBI", date(2015, 6, 1), master=master) is None
 
 
 def test_template_prefix_used_by_many_companies_is_ignored(master):

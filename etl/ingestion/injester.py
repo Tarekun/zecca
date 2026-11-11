@@ -4,6 +4,7 @@ from etl.config import Config
 from etl.ingestion.french_library import FrenchLibrary
 from etl.ingestion.sec import (
     SecCompanyFacts,
+    SecFilingTextTickers,
     SecFullIndex,
     SecTickers,
     SecTickersExchange,
@@ -30,6 +31,10 @@ def configured_sources(config: Config) -> list[Source]:
         SecFullIndex(dataplatform_root=dataplatform_root),
         SecXbrlCoverPages(dataplatform_root=dataplatform_root),
         SecXbrlFilings(dataplatform_root=dataplatform_root),
+        # after the two above: reads the annual reports of the companies
+        # they give no ticker for (one download per company, slow the
+        # first time)
+        SecFilingTextTickers(dataplatform_root=dataplatform_root),
         # yahoo finance
         YFinanceTicker(
             "1d",

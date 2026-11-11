@@ -576,3 +576,253 @@ class SecXbrlCoverPages(TableLike):
         return pl.scan_parquet(
             str(self.root_dir / "**" / "*.parquet"), hive_partitioning=True
         )
+
+
+# --- tickers in the text of annual reports ------------------------------------
+
+ANNUAL_REPORT_FORMS = [
+    "10-K",
+    "10-K405",
+    "10-KSB",
+    "10KSB",
+    "10-KSB40",
+    "10KSB40",
+    "10-KT",
+    "20-F",
+    "40-F",
+]
+_PERIODIC_FORMS = ANNUAL_REPORT_FORMS + ["10-Q", "10-QSB", "10QSB", "10-QT"]
+# evidence that a company had publicly held shares (5% ownership reports and
+# proxy statements, only filed about a registered class of equity) or an
+# exchange listing
+PUBLIC_EVIDENCE_FORMS = [
+    "SC 13G",
+    "SC 13G/A",
+    "SC 13D",
+    "SC 13D/A",
+    "SCHEDULE 13G",
+    "SCHEDULE 13G/A",
+    "SCHEDULE 13D",
+    "SCHEDULE 13D/A",
+    "DEF 14A",
+    "DEFA14A",
+    "8-A12B",
+    "20FR12B",
+    "25",
+    "25-NSE",
+]
+
+# how annual reports name the company's own symbol: "traded on the NYSE
+# under the symbol "XYZ"", "(NYSE: XYZ)", "trading symbol: XYZ"
+_SYMBOL = r"([A-Z]{1,5}(?:[.\-][A-Z]{1,2})?)"
+_SYMBOL_PATTERNS = [
+    re.compile(
+        r"under\s+the\s+(?:trading\s+|ticker\s+|stock\s+)?symbols?\s*[\"'`:]*\s*"
+        + _SYMBOL
+        + r"\b"
+    ),
+    re.compile(
+        r"\(\s*(?:NYSE|NASDAQ|Nasdaq|AMEX|Amex|NYSE\s+Amex|NYSE\s+Arca)\s*[:\-]\s*"
+        + _SYMBOL
+        + r"\s*\)"
+    ),
+    re.compile(
+        r"(?:ticker|trading|stock)\s+symbol\s*(?:is|of|:)?\s*[\"'`]*" + _SYMBOL + r"\b"
+    ),
+    re.compile(r"[Ss]ymbol\s*[:\-]\s*[\"'`]*" + _SYMBOL + r"\b"),
+]
+# words the patterns pick up that are never the company's symbol
+_NOT_SYMBOLS = {
+    "A", "AMEX", "AND", "BB", "COMMON", "CORP", "CUSIP", "FOR", "I", "INC", "IS",
+    "NASDAQ", "NYSE", "OF", "ON", "OTC", "PAGE", "SEC", "STOCK", "TABLE", "THE",
+}  # fmt: skip
+# units, warrants and rights of a SPAC: not the company's shares
+_NOT_SHARE_CLASSES = {"U", "UN", "W", "WS", "R", "RT"}
+# over-the-counter markers written after the symbol (`XYZ.OB`, `XYZ.PK`)
+_OTC_SUFFIXES = {"OB", "PK", "QB", "QX"}
+_ENTITIES = {
+    "&#8220;": '"', "&#8221;": '"', "&#147;": '"', "&#148;": '"', "&quot;": '"',
+    "&ldquo;": '"', "&rdquo;": '"', "&#8217;": "'", "&nbsp;": " ", "&#160;": " ",
+}  # fmt: skip
+# annual reports with their exhibits can be tens of MB; the market section
+# (Item 5 of a 10-K, Item 9 of a 20-F) comes well before this
+_TEXT_LIMIT_BYTES = 10_000_000
+
+
+def clean_symbol(symbol: str) -> str | None:
+    """`XYZ.OB` -> `XYZ`, `BRK.B` -> `BRK-B`; None for SPAC units,
+    warrants and rights (`XYZ.U`, `XYZ.WS`) and words that aren't symbols."""
+    base, _, share_class = symbol.replace(".", "-").partition("-")
+    if base in _NOT_SYMBOLS or share_class in _NOT_SHARE_CLASSES:
+        return None
+    if share_class in _OTC_SUFFIXES or not share_class:
+        return base
+    return f"{base}-{share_class}"
+
+
+def extract_symbols(text: str) -> dict[str, int]:
+    """Candidate symbols mentioned in an annual report (HTML or plain text)
+    as the company's own, with the number of mentions. Class suffixes use
+    `-` (`BRK-B`), like `company_tickers.json`, and OTC markers are dropped
+    (`XYZ.OB` -> `XYZ`); SPAC units, warrants and rights are left out."""
+    text = re.sub(r"<[^>]+>", " ", text)
+    for entity, char in _ENTITIES.items():
+        text = text.replace(entity, char)
+    text = text.replace("“", '"').replace("”", '"')
+    counts: dict[str, int] = {}
+    for pattern in _SYMBOL_PATTERNS:
+        for match in pattern.findall(text):
+            symbol = clean_symbol(match)
+            if symbol is not None:
+                counts[symbol] = counts.get(symbol, 0) + 1
+    return counts
+
+
+class SecFilingTextTickers(TableLike):
+    """The ticker named in the text of the last annual report of companies
+    that never filed XBRL (gone before mid-2011), for which neither XBRL
+    cover pages nor XBRL file names give one.
+
+    Targets are the companies with evidence of public shares or an exchange
+    listing in the full-index (`PUBLIC_EVIDENCE_FORMS`) and no periodic
+    report in `raw.xbrl_filings`, optionally only those whose last periodic
+    report is on or after `min_last_report`. For each, the latest annual
+    report is downloaded and searched (`extract_symbols`); if it names no
+    symbol, the one before.
+
+    One row per downloaded report, with the most mentioned symbol (null if
+    none) and all candidates. Reports already stored are never downloaded
+    again, and a company with a symbol found is done, so reruns only fetch
+    new targets. Needs `raw.edgar_full_index` and `raw.xbrl_filings`."""
+
+    _URL = "https://www.sec.gov/Archives/{filename}"
+    _REPORTS_PER_COMPANY = 2
+    _BATCH = 50
+
+    def __init__(self, min_last_report: date | None = None, **kwargs) -> None:
+        super().__init__(
+            name="filing_text_tickers", key_columns=["accession_number"], **kwargs
+        )
+        self.min_last_report = min_last_report
+
+    def targets(self) -> pl.DataFrame:
+        """(cik, accession_number, form_type, date_filed, filename): the
+        latest annual reports of each target company, newest first."""
+        filings = SecFullIndex(
+            dataplatform_root=self.dataplatform_root
+        ).read_from_disk()
+        public = (
+            filings.filter(pl.col("form_type").is_in(PUBLIC_EVIDENCE_FORMS))
+            .select("cik")
+            .unique()
+        )
+        with_xbrl = (
+            SecXbrlFilings(dataplatform_root=self.dataplatform_root)
+            .read_from_disk()
+            .filter(pl.col("form_type").is_in(_PERIODIC_FORMS))
+            .select("cik")
+            .unique()
+        )
+        last_report = (
+            filings.filter(pl.col("form_type").is_in(_PERIODIC_FORMS))
+            .group_by("cik")
+            .agg(pl.col("date_filed").max().alias("last_report"))
+        )
+        companies = last_report.join(public, on="cik", how="semi").join(
+            with_xbrl, on="cik", how="anti"
+        )
+        if self.min_last_report is not None:
+            companies = companies.filter(pl.col("last_report") >= self.min_last_report)
+        return (
+            filings.filter(pl.col("form_type").is_in(ANNUAL_REPORT_FORMS))
+            .join(companies, on="cik", how="semi")
+            .select("cik", "accession_number", "form_type", "date_filed", "filename")
+            .unique("accession_number")
+            .sort(["cik", "date_filed"], descending=[False, True])
+            .group_by("cik", maintain_order=True)
+            .head(self._REPORTS_PER_COMPANY)
+            .collect(engine="streaming")
+        )
+
+    def stored(self) -> pl.DataFrame:
+        if not any(self.root_dir.glob("*.parquet")):
+            return pl.DataFrame(
+                schema={
+                    "cik": pl.Int64,
+                    "accession_number": pl.String,
+                    "symbol": pl.String,
+                }
+            )
+        return (
+            self.read_from_disk().select("cik", "accession_number", "symbol").collect()
+        )
+
+    def load_report(self, filename: str) -> dict[str, int]:
+        with _sec_get(self._URL.format(filename=filename), stream=True) as response:
+            content = b""
+            for chunk in response.iter_content(chunk_size=1 << 16):
+                content += chunk
+                if len(content) > _TEXT_LIMIT_BYTES:
+                    break
+        return extract_symbols(content.decode("latin-1"))
+
+    def load(self, **kwargs) -> Iterator[pl.DataFrame]:
+        today = kwargs.get("today") or date.today()
+        targets = self.targets()
+        stored = self.stored()
+        done = set(stored.filter(pl.col("symbol").is_not_null())["cik"].to_list())
+        downloaded = set(stored["accession_number"].to_list())
+        pending = targets.filter(
+            ~pl.col("cik").is_in(list(done)),
+            ~pl.col("accession_number").is_in(list(downloaded)),
+        )
+        logger.info(
+            "%s: %d target companies, %d already resolved, up to %d reports to read",
+            self.id,
+            targets["cik"].n_unique(),
+            len(done),
+            pending.height,
+        )
+        rows: list[dict] = []
+        found: set[int] = set()
+        for i, report in enumerate(pending.iter_rows(named=True), start=1):
+            if report["cik"] in found:
+                continue  # the newer report already named it
+            counts = self.load_report(report["filename"])
+            ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            symbol, mentions = ranked[0] if ranked else (None, 0)
+            if symbol is not None:
+                found.add(report["cik"])
+            rows.append(
+                {
+                    "cik": report["cik"],
+                    "accession_number": report["accession_number"],
+                    "form_type": report["form_type"],
+                    "date_filed": report["date_filed"],
+                    "symbol": symbol,
+                    "mentions": mentions,
+                    "candidates": ",".join(f"{s}:{n}" for s, n in ranked[:5]),
+                    "ingested_at": today,
+                }
+            )
+            if len(rows) >= self._BATCH:
+                logger.info("%s: %d/%d reports read", self.id, i, pending.height)
+                yield pl.DataFrame(rows, schema=_TEXT_TICKERS_SCHEMA)
+                rows = []
+        if rows:
+            yield pl.DataFrame(rows, schema=_TEXT_TICKERS_SCHEMA)
+
+    def read_from_disk(self) -> pl.LazyFrame:
+        return pl.scan_parquet(str(self.root_dir / "*.parquet"))
+
+
+_TEXT_TICKERS_SCHEMA = {
+    "cik": pl.Int64,
+    "accession_number": pl.String,
+    "form_type": pl.String,
+    "date_filed": pl.Date,
+    "symbol": pl.String,
+    "mentions": pl.Int64,
+    "candidates": pl.String,
+    "ingested_at": pl.Date,
+}
