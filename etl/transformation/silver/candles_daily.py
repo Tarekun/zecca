@@ -12,6 +12,7 @@ from etl.transformation.indicators import (
 )
 from etl.transformation.quality_checks import (
     column_comparison,
+    no_survivorship_bias,
     not_empty,
     not_null,
     unique,
@@ -204,6 +205,7 @@ class CandlesDailySilver(Model):
                 not_null(["timeframe", "symbol"]),
                 unique(["timeframe", "symbol"]),
                 column_comparison("low", "<=", "high"),
+                no_survivorship_bias("timeframe", "symbol"),
                 *[
                     in_range(c, 0, 100)
                     for c in [
