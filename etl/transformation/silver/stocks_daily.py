@@ -23,6 +23,7 @@ class StocksDailySilver(Model):
             name="stocks_daily",
             layer="silver",
             partitioning_columns=["year", "month"],
+            strategy="fullrefresh",
             quality_checks=[
                 not_empty(),
                 not_null(["timeframe", "symbol"]),
@@ -40,7 +41,20 @@ class StocksDailySilver(Model):
             dataplatform_root=dataplatform_root,
         )
 
-    def _build(self) -> pl.LazyFrame:
+    def _build(self, incremental: bool = False) -> pl.LazyFrame:
+        after = None
+        if incremental:
+            # only compute what comes after what the table already holds
+            try:
+                after = (
+                    self.read_from_disk()
+                    .select(pl.col("timeframe").max())
+                    .collect()
+                    .item()
+                )
+            except pl.exceptions.ComputeError:
+                pass  # nothing stored yet: build everything
+
         candles = CandlesDailySilver(
             dataplatform_root=self.dataplatform_root
         ).read_from_disk()
@@ -57,6 +71,10 @@ class StocksDailySilver(Model):
                 ]
             )
         )
+        if after is not None:
+            candles = candles.filter(pl.col("timeframe") > after)
+            sec = sec.filter(pl.col("reference_date") > after)
+
         return (
             candles.join(
                 sec,
@@ -96,10 +114,8 @@ def test_all_candles_pairs_present(
     )
     stocks_pairs = lf.select(["symbol", "timeframe"]).unique()
 
-    missing = (
-        candles_pairs.join(stocks_pairs, on=["symbol", "timeframe"], how="anti")
-        .sort(["symbol", "timeframe"])
-        .collect()
-    )
+    missing = candles_pairs.join(
+        stocks_pairs, on=["symbol", "timeframe"], how="anti"
+    ).sort(["symbol", "timeframe"])
 
     return missing

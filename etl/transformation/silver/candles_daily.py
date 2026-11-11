@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 import polars as pl
 
@@ -26,7 +26,9 @@ from etl.transformation.model import Model, DEFAULT_DATAPLATFORM_ROOT
 _LOOKBACKS = [1, 5, 14, 20, 30, 62, 126, 252]
 
 
-def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
+def compute_from_source(
+    dataplatform_root: str, after: date | None = None
+) -> pl.LazyFrame:
     """Read ticker_daily parquet data and compute the full candles_daily indicator set.
 
     Replicates the logic of the dbt model ``silver/candles_daily.sql`` and its
@@ -34,8 +36,9 @@ def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
     the schema of that model exactly, including column names and aliases.
 
     Args:
-        yfinance_data_path: Root directory of the yfinance data store — the value
-            that maps to the ``yfinance_data`` dbt variable in ``profiles.yml``.
+        dataplatform_root: Root of the dataplatform holding ``raw/ticker_daily``.
+        after: if given, only the rows with ``timeframe`` after this date are
+            returned, computed from just the history they depend on.
 
     Returns:
         LazyFrame with one row per (symbol, date) containing:
@@ -51,6 +54,11 @@ def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
         - RSI (other periods): ``rsi_1d/1w/1m/30_steps/1q/6m/1y``
     """
     df = YFinanceTicker("1d", dataplatform_root=dataplatform_root).read_from_disk()
+    if after is not None:
+        # required past readings for window indicator computation
+        # max visibility we compute is 1 year, migth need update
+        warmup = timedelta(days=365)
+        df = df.filter(pl.col("date").cast(pl.Date) >= after - warmup)
 
     df = (
         df.rename({"ticker": "symbol"})
@@ -118,6 +126,10 @@ def compute_from_source(dataplatform_root: str) -> pl.LazyFrame:
             for s in _LOOKBACKS
         ]
     )
+
+    # incremental filtering
+    if after is not None:
+        df = df.filter(pl.col("timeframe") > after)
 
     # Final selection and renaming to match the candles_daily schema
     result = df.select(
@@ -200,6 +212,7 @@ class CandlesDailySilver(Model):
             name="candles_daily",
             layer="silver",
             partitioning_columns=["year", "month"],
+            strategy="incremental",
             quality_checks=[
                 not_empty(),
                 not_null(["timeframe", "symbol"]),
@@ -223,5 +236,17 @@ class CandlesDailySilver(Model):
             dataplatform_root=dataplatform_root,
         )
 
-    def _build(self) -> pl.LazyFrame:
-        return compute_from_source(self.dataplatform_root)
+    def _build(self, incremental: bool = False) -> pl.LazyFrame:
+        after = None
+        if incremental:
+            # only compute what comes after what the table already holds
+            try:
+                after = (
+                    self.read_from_disk()
+                    .select(pl.col("timeframe").max())
+                    .collect()
+                    .item()
+                )
+            except pl.exceptions.ComputeError:
+                pass  # nothing stored yet: build everything
+        return compute_from_source(self.dataplatform_root, after)

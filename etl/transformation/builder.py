@@ -27,9 +27,7 @@ def _backup_transformed():
         src = root / layer
         if src.exists():
             dst = backup_dir / layer
-            # TODO: if incremental processing is ever supported switch this back to a copy
-            # shutil.copytree(src, dst, dirs_exist_ok=True)
-            shutil.move(src, dst)
+            shutil.copytree(src, dst, dirs_exist_ok=True)
             logger.info("Backed up %s → %s", src, dst)
 
     cutoff = datetime.now() - timedelta(days=30)
@@ -86,7 +84,7 @@ def build_models(config: Config, layer: str):
     models = [m for m in models if m.layer == layer]
 
     for model in build_execution_plan(models):
-        model.build_store_free()
+        model.build_store_free(incremental=config.incremental)
 
 
 def build_everything(config: Config):

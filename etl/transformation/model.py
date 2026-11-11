@@ -4,6 +4,7 @@ import graphlib
 import inspect
 import shutil
 import textwrap
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 import polars as pl
@@ -27,6 +28,7 @@ class Model(ABC):
         dataplatform_root: str = DEFAULT_DATAPLATFORM_ROOT,
         kind: Literal["table", "view"] = "table",
         quality_checks: list[DataQualityCheck] = [],
+        strategy: Literal["fullrefresh", "incremental"] = "fullrefresh",
     ) -> None:
         super().__init__()
         self.name = name
@@ -36,9 +38,7 @@ class Model(ABC):
         self.dataplatform_root = dataplatform_root
         self._configured_dependencies: list[type] | None = None
         self._discovered_dependencies: list[type] | None = None
-        # TODO: currently models only support full refresh processing
-        # this variable was defined anyway as a future proof flag for store FR processing
-        self.strategy: Literal["fullrefresh"] = "fullrefresh"
+        self.strategy = strategy
         self.kind = kind
         self.quality_checks = quality_checks
 
@@ -59,12 +59,12 @@ class Model(ABC):
         return f"{self.layer}.{self.name}"
 
     @abstractmethod
-    def _build(self) -> pl.LazyFrame:
+    def _build(self, incremental: bool = False) -> pl.LazyFrame:
         pass
 
-    def build(self) -> pl.LazyFrame:
+    def build(self, incremental: bool = False) -> pl.LazyFrame:
         logger.info("Building from source data model %s", self.id)
-        self._lf = self._build()
+        self._lf = self._build(incremental)
         try:
             self._lf.collect_schema()  # type: ignore
         except pl.exceptions.PolarsError:
@@ -192,7 +192,11 @@ class Model(ABC):
             )
         elif self.partitioning_columns:
             self._lf.sink_parquet(
-                pl.PartitionBy(model_dir, key=self.partitioning_columns)
+                pl.PartitionBy(
+                    model_dir,
+                    key=self.partitioning_columns,
+                    file_path_provider=self._partition_file_path,
+                )
             )
         else:
             self._lf.sink_parquet(model_dir / f"{self.name}.parquet")
@@ -201,7 +205,13 @@ class Model(ABC):
             "model": self.name,
             "layer": self.layer,
             "partitioned_by": self.partitioning_columns,
-            "row_count": self._lf.select(pl.len()).collect().item(),
+            # an incremental plan only holds the appended rows
+            "row_count": (
+                self.read_from_disk() if self.strategy == "incremental" else self._lf
+            )
+            .select(pl.len())
+            .collect()
+            .item(),
             "columns": [
                 {"name": col, "dtype": str(dtype)}
                 for col, dtype in self._lf.schema.items()
@@ -212,6 +222,18 @@ class Model(ABC):
             yaml.dump(schema_data, f, default_flow_style=False, sort_keys=False)
 
         logger.info("Stored %s/%s", self.layer, self.name)
+
+    def _partition_file_path(self, args) -> str:
+        # same directory structure as polars
+        keys = args.partition_keys.row(0, named=True)
+        directory = "/".join(f"{col}={keys[col]}" for col in self.partitioning_columns)
+        name = f"{args.index_in_partition:08d}"
+
+        # if incremental timestamped named to avoid replacing previous file
+        if self.strategy == "incremental":
+            name = f"{time.time_ns()}-{name}"
+
+        return f"{directory}/{name}.parquet"
 
     def free(self):
         """Drops the in-memory lazy plan, releasing any buffers it holds.
@@ -225,14 +247,14 @@ class Model(ABC):
         self._lf = None
         gc.collect()
 
-    def build_store_free(self):
+    def build_store_free(self, incremental: bool = False):
         """Runs build() and store().
 
         Since the pipeline only ever builds a lazy plan and sink_parquet
         streams it to disk in fixed-size batches, no full frame is ever
         materialized in memory here, so there's nothing for a dedicated
         subprocess to reclaim."""
-        self.build()
+        self.build(incremental)
         self.store()
 
     def read_from_disk(self) -> pl.LazyFrame:
