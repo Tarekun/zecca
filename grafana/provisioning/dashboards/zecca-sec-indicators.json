@@ -1,0 +1,72 @@
+{
+  "uid": "zecca-sec-indicators",
+  "title": "Zecca — SEC Indicators",
+  "tags": ["zecca", "sec"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": { "from": "now-1y", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "motherduck-duckdb-datasource",
+          "uid": "duckdb-zecca"
+        },
+        "query": "SELECT DISTINCT namespace FROM read_csv('/data/gold/sec_indicators/sec_indicators.csv') ORDER BY namespace",
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "options": []
+      },
+      {
+        "name": "search",
+        "label": "Search",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "options": [{ "selected": true, "text": "", "value": "" }]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "SEC indicators",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "duckdb-zecca"
+      },
+      "gridPos": { "h": 28, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "filterable": true, "cellOptions": { "type": "auto" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "cik_count", "desc": true }]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "duckdb-zecca"
+          },
+          "editorMode": "code",
+          "format": 0,
+          "rawSql": "SELECT indicator, label, description, namespace, cik_count FROM read_csv('/data/gold/sec_indicators/sec_indicators.csv') WHERE namespace IN (${namespace:sqlstring}) AND (indicator ILIKE '%' || ${search:sqlstring} || '%' OR label ILIKE '%' || ${search:sqlstring} || '%' OR description ILIKE '%' || ${search:sqlstring} || '%') ORDER BY cik_count DESC"
+        }
+      ]
+    }
+  ]
+}
