@@ -349,3 +349,95 @@ class DataQualityError(Exception):
             f"{model_id} failed {len(failures)} data quality check(s):\n"
             + "\n".join(f"  - {failure}" for failure in failures)
         )
+
+
+def no_overlapping_intervals(
+    group_by: str | list[str],
+    start_column: str = "valid_from",
+    end_column: str = "valid_to",
+    distinct_by: str | list[str] | None = None,
+) -> DataQualityCheck:
+    """Builds a check that fails on any pair of rows sharing the same
+    `group_by` values whose `[start_column, end_column)` intervals overlap.
+    Intervals are half-open and a null `end_column` means open-ended (still
+    valid). Rows with a null in any `group_by` column are ignored.
+
+    With `distinct_by`, only pairs that differ on those columns count, e.g.
+    `group_by="ticker", distinct_by="cik"` checks that a ticker belongs to a
+    single company at a time while allowing one company to have several
+    rows for the same ticker (that's a separate check on
+    `group_by=["cik", "ticker"]`).
+
+    Returns one row per overlapping pair, with both rows' intervals."""
+    group_by = [group_by] if isinstance(group_by, str) else list(group_by)
+    distinct_by = (
+        []
+        if distinct_by is None
+        else [distinct_by] if isinstance(distinct_by, str) else list(distinct_by)
+    )
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame:
+        rows = (
+            lf.select(
+                list(dict.fromkeys([*group_by, *distinct_by, start_column, end_column]))
+            )
+            .drop_nulls(group_by)
+            .with_row_index("_row")
+        )
+        pairs = rows.join(rows, on=group_by, how="inner", suffix="_other").filter(
+            pl.col("_row") < pl.col("_row_other")
+        )
+        if distinct_by:
+            pairs = pairs.filter(
+                pl.any_horizontal(
+                    pl.col(c).ne_missing(pl.col(f"{c}_other")) for c in distinct_by
+                )
+            )
+        starts_before_other_ends = pl.col(f"{end_column}_other").is_null() | (
+            pl.col(start_column) < pl.col(f"{end_column}_other")
+        )
+        other_starts_before_end = pl.col(end_column).is_null() | (
+            pl.col(f"{start_column}_other") < pl.col(end_column)
+        )
+        return pairs.filter(starts_before_other_ends & other_starts_before_end).drop(
+            "_row", "_row_other"
+        )
+
+    suffix = f"_across_{'_'.join(distinct_by)}" if distinct_by else ""
+    check.__name__ = f"no_overlapping_intervals_{'_'.join(group_by)}{suffix}"
+    return check
+
+
+def min_share(
+    name: str,
+    condition: pl.Expr,
+    threshold: float,
+    among: pl.Expr | None = None,
+    unique_by: str | list[str] | None = None,
+) -> DataQualityCheck:
+    """Builds a check that fails when fewer than `threshold` (a fraction) of
+    the rows satisfy `condition`: a floor on coverage, for properties that
+    can't hold for every row but must hold for most (e.g. "listed companies
+    have a known ticker").
+
+    `among` restricts the rows considered and `unique_by` counts each
+    distinct value of those columns once (its first row). Returns a single
+    row with the observed share and the number of rows considered when the
+    check fails, nothing otherwise (or when no row is considered)."""
+    unique_by = [unique_by] if isinstance(unique_by, str) else unique_by
+
+    def check(lf: pl.LazyFrame) -> pl.LazyFrame:
+        rows = lf if among is None else lf.filter(among)
+        if unique_by:
+            rows = rows.unique(unique_by, keep="first")
+        return (
+            rows.select(
+                condition.cast(pl.Float64).mean().alias("share"),
+                pl.len().alias("rows"),
+            )
+            .with_columns(pl.lit(threshold).alias("threshold"))
+            .filter(pl.col("rows") > 0, pl.col("share") < threshold)
+        )
+
+    check.__name__ = f"min_share_{name}"
+    return check

@@ -48,6 +48,7 @@ def _backup_transformed():
 def configured_models(config: Config) -> list[Model]:
     models = [
         CompanyTickersSilver(),
+        SecurityMasterSilver(),
         CandlesDailySilver(),
         FamaFrench5Silver(),
         SecCompanyFactsSilver(),

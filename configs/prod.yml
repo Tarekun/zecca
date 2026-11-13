@@ -9,3 +9,6 @@ skip:
   - silver.fama_french_5
   - silver.factor_loadings
   - gold.sec_indicators
+  # one download per company without XBRL: run on demand with
+  # `--select raw.filing_text_tickers`
+  - raw.filing_text_tickers
