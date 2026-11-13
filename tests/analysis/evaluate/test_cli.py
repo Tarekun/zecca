@@ -272,3 +272,92 @@ class TestListAndHistory:
         assert history["evaluations"] == 3
         assert history["variants_tested"] == 2
         assert [e["params"]["symbol"] for e in history["entries"]] == ["A", "B", "A"]
+
+
+ROBUST_FAST = ["--n-random", "5", "--bootstrap-samples", "50", "--n-paths", "2"]
+
+
+class TestRobustness:
+    def test_full_robustness_report(self, capsys, config, no_real_mlflow):
+        code, report = run(
+            capsys, config, "run", PICK, "--protocol", "robustness", *ROBUST_FAST
+        )
+        assert code == 0 and report["status"] == "ok"
+        rob = report["robustness"]
+        assert set(rob) == set(cli.ROBUSTNESS_CHECKS)
+        assert rob["bootstrap"]["n"] == 50
+        assert rob["random_baseline"]["n"] == 5
+        assert rob["random_walk"]["n_paths"] == 2
+        # Pick's grid: 3 symbols x 2 exposures, the defaults are one of them
+        assert rob["sensitivity"]["candidates"] == 6
+        assert rob["sensitivity"]["evaluated_params_rank"] in range(1, 7)
+        assert report["experiment_log"]["variants_tested"] == 6
+        dsr = rob["deflated_sharpe"]
+        assert dsr["n_trials"] == 6 and dsr["trials_sharpe_variance"] > 0
+        assert 0 <= dsr["deflated_sharpe"] <= 1
+        # headline numbers are flat metrics, so mlflow can chart them
+        assert {
+            "deflated_sharpe",
+            "random_baseline_percentile",
+            "bootstrap_sharpe_low",
+        } <= set(report["metrics"])
+        assert no_real_mlflow == [report["run_id"]]
+
+    def test_selected_checks_only(self, capsys, config):
+        code, report = run(
+            capsys,
+            config,
+            "run",
+            PICK,
+            "--no-mlflow",
+            "--protocol",
+            "robustness",
+            "--checks",
+            "bootstrap,random_walk",
+            *ROBUST_FAST,
+        )
+        assert code == 0
+        assert set(report["robustness"]) == {"bootstrap", "random_walk"}
+        assert report["experiment_log"]["variants_tested"] == 1
+
+    def test_deflated_sharpe_uses_earlier_trials_without_a_grid(self, capsys, config):
+        for symbol in "ABC":
+            run(
+                capsys,
+                config,
+                "run",
+                PICK,
+                "--no-mlflow",
+                "--params",
+                f'{{"symbol": "{symbol}"}}',
+            )
+        _, report = run(
+            capsys,
+            config,
+            "run",
+            PICK,
+            "--no-mlflow",
+            "--protocol",
+            "robustness",
+            "--checks",
+            "deflated_sharpe",
+        )
+        dsr = report["robustness"]["deflated_sharpe"]
+        assert dsr["n_trials"] == 3  # A (default params) was already one of them
+        assert dsr["trials_sharpe_variance"] > 0
+
+    @pytest.mark.parametrize(
+        "args", [["--checks", "nope"], ["--checks", ""], ["--holdout"]]
+    )
+    def test_invalid(self, capsys, config, args):
+        code, report = run(
+            capsys,
+            config,
+            "run",
+            PICK,
+            "--no-mlflow",
+            "--protocol",
+            "robustness",
+            *args,
+        )
+        assert code == cli.EXIT_INVALID and report["status"] == "error"
